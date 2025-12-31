@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "module": "ESNext",               
+    "target": "ES6",                  
+    "declaration": true,        // Generates corresponding '.d.ts' types file.
+    "outDir": "dist",           // Where the compiled files go.           
+    // "strict": true,                   
+    // "esModuleInterop": true,
+    // "moduleResolution": "Node",
+    // "skipLibCheck": true
+  },
+  "include": ["src"]            // Where the source code lives.
+}
