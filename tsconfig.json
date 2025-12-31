@@ -5,8 +5,9 @@
     "declaration": true,        // Generates corresponding '.d.ts' types file.
     "outDir": "dist",           // Where the compiled files go.           
     // "strict": true,                   
-    // "esModuleInterop": true,
-    // "moduleResolution": "Node",
+    "esModuleInterop": true,
+    "moduleResolution": "Node",
+    "resolveJsonModule": true,
     // "skipLibCheck": true
   },
   "include": ["src"]            // Where the source code lives.

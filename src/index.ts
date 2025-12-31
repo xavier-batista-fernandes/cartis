@@ -1,2 +1,2 @@
-export { sayHello } from "./hello-world";
-export { sayGoodbye } from "./hello-world";
+export { Country } from "./core/country-data";
+export { CountryName } from "./types/country-name";
