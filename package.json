@@ -1,23 +1,22 @@
 {
-  "name": "cartis",
-  "version": "0.1.0",
-  "description": "Library for rendering maps as SVG or vector graphics.",
-  "author": "Xavier Fernandes",
-  "homepage": "https://github.com/xavier-batista-fernandes/cartis#readme",
-  "license": "MIT",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "files": [
-    "/dist"
-  ],
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "tsc",
-    "publish:lib": "npm run build && npm publish",
-    "publish:beta": "npm run build && npm publish --tag beta",
-    "publish:dryrun": "npm run build && npm publish --dry-run"
-  },
-  "devDependencies": {
-    "typescript": "^5.9.3"
-  }
+	"name": "cartis",
+	"version": "0.1.0",
+	"description": "Library for rendering maps as SVG or vector graphics.",
+	"author": "Xavier Fernandes",
+	"homepage": "https://github.com/xavier-batista-fernandes/cartis#readme",
+	"license": "MIT",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"files": [
+		"/dist"
+	],
+	"scripts": {
+		"build": "tsc",
+		"publish:lib": "npm run build && npm publish",
+		"publish:beta": "npm run build && npm publish --tag beta",
+		"publish:dryrun": "npm run build && npm publish --dry-run"
+	},
+	"devDependencies": {
+		"typescript": "^5.9.3"
+	}
 }
