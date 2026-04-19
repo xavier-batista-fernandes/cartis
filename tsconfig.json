@@ -1,14 +1,23 @@
 {
-  "compilerOptions": {
-    "module": "ESNext",               
-    "target": "ES6",                  
-    "declaration": true,        // Generates corresponding '.d.ts' types file.
-    "outDir": "dist",           // Where the compiled files go.           
-    // "strict": true,                   
-    "esModuleInterop": true,
-    "moduleResolution": "Node",
-    "resolveJsonModule": true,
-    // "skipLibCheck": true
-  },
-  "include": ["src"]            // Where the source code lives.
+	"compilerOptions": {
+		"target": "es2022",
+
+		"module": "nodenext",
+		"moduleResolution": "nodenext",
+
+		"declaration": true, // Generates corresponding '.d.ts' types file.
+
+		"rootDir": "./src", // Where the source code lives.
+		"outDir": "dist", // Where the compiled files go.
+
+		"esModuleInterop": true,
+		"resolveJsonModule": true, // Allows importing JSON files as modules. [import data from "./data.json"]
+
+		"types": ["node"], // Include type definitions for Node.js.
+
+		// "strict": true, // Compiling with strict type-checking options enabled.
+		"skipLibCheck": true
+	},
+
+	"include": ["src"] // What gets compiled.
 }
