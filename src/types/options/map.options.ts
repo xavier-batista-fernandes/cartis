@@ -1,4 +1,4 @@
-import type { StyleOptions } from "./style-options.js";
+import type { StyleOptions } from "./style.options.js";
 
 export interface MapOptions {
 	padding?: number; // % as decimal (0.05 = 5%)
@@ -11,6 +11,9 @@ export interface MapOptions {
 	};
 
 	style?: {
+		strokeColor?: string;
+		strokeWidth?: number;
+		fill?: string;
 		duration?: number;
 	} & StyleOptions;
 }

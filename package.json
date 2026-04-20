@@ -23,9 +23,10 @@
 	},
 
 	"scripts": {
-		"build": "tsc",
-		"biome:check": "biome check --write",
-		"biome:write": "biome format --write",
+		"clean": "rm -rf dist",
+		"build": "npm run clean && tsc",
+		"format:check": "biome check --write",
+		"format:write": "biome format --write",
 		"publish:lib": "npm run build && npm publish",
 		"publish:beta": "npm run build && npm publish --tag beta",
 		"publish:dryrun": "npm run build && npm publish --dry-run"
