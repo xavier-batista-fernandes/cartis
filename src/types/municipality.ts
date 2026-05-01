@@ -280,3 +280,7 @@ export const MUNICIPALITIES = [
 ] as const;
 
 export type Municipality = (typeof MUNICIPALITIES)[number];
+
+export function getMunicipalitiesArray() {
+	return Array.from(MUNICIPALITIES);
+}

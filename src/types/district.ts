@@ -20,3 +20,7 @@ export const DISTRICTS = [
 ] as const;
 
 export type District = (typeof DISTRICTS)[number];
+
+export function getDistrictsArray() {
+	return Array.from(DISTRICTS);
+}

@@ -19,8 +19,6 @@ export function randomMunicipality(country: Country): Municipality {
 		}
 
 		default:
-			throw new Error(
-				`Random municipality for country ${country} is not available.`,
-			);
+			throw new Error(`Random municipality for country ${country} is not available.`);
 	}
 }
