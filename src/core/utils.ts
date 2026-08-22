@@ -10,6 +10,13 @@ export async function getTopology(country: Country): Promise<any> {
 	}
 }
 
+/**
+ * Picks a uniformly random municipality name for the given country. Handy for demos, "guess a
+ * random one" game modes, or decorative animated maps.
+ *
+ * @param country - Only {@link Country.PORTUGAL} is supported — other values throw.
+ * @throws If `country` isn't supported.
+ */
 // TODO: Could be a class specific method.
 export function randomMunicipality(country: Country): Municipality {
 	switch (country) {

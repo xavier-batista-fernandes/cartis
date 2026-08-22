@@ -1,3 +1,4 @@
+/** All 278 Portuguese municipality names, in no particular order. Generated from the bundled topology — see `scripts/generate-types.js`. */
 export const MUNICIPALITIES = [
 	"Águeda",
 	"Albergaria-a-Velha",
@@ -279,8 +280,10 @@ export const MUNICIPALITIES = [
 	"Vouzela",
 ] as const;
 
+/** A Portuguese municipality name — the literal union of {@link MUNICIPALITIES}. This is the type every municipality-name parameter across cartis expects (case- and accent-sensitive: use the exact spelling from this list, or look it up with {@link getMunicipalityFromString}). */
 export type Municipality = (typeof MUNICIPALITIES)[number];
 
+/** Returns a fresh, mutable array of all 278 municipality names (a copy — safe to sort/filter/mutate). */
 export function getMunicipalitiesArray() {
 	return Array.from(MUNICIPALITIES);
 }

@@ -6,18 +6,27 @@ import type { District } from "../types/district.js";
 import type { MapRenderer } from "../types/map/map-renderer.js";
 import type { MapState } from "../types/map/map-state.js";
 import type { Municipality } from "../types/municipality.js";
-import type { JumpOptions } from "../types/options/jump.options.js";
+import type { FitOptions } from "../types/options/fit.options.js";
 import type { MapOptions } from "../types/options/map.options.js";
 import type { StyleOptions } from "../types/options/style.options.js";
 import { Status } from "../types/status.js";
 import { getTopology } from "./utils.js";
 
+/**
+ * Renders an interactive, zoomable SVG map of a country's municipalities using D3 and TopoJSON.
+ *
+ * There is no public constructor — build an instance with {@link CountryMap.create}, which
+ * resolves only once the map has finished rendering. Every method below assumes the instance
+ * came from `create()` and is safe to call as soon as you have a reference to it.
+ *
+ * Only {@link Country.PORTUGAL} is currently supported.
+ */
 export class CountryMap {
 	private mapOptions: MapOptions;
 	private mapState: MapState;
 	private mapRenderer: MapRenderer;
 
-	constructor(country: Country, container: HTMLElement, options: MapOptions = { style: DEFAULT_MAP_STYLES }) {
+	private constructor(country: Country, container: HTMLElement, options: MapOptions = { style: DEFAULT_MAP_STYLES }) {
 		this.mapState = { status: Status.IDLE, country };
 		this.mapRenderer = {
 			container: container,
@@ -31,28 +40,54 @@ export class CountryMap {
 				fill: options.style?.fill ?? DEFAULT_MAP_STYLES.fill,
 			},
 		};
-
-		this.render();
 	}
 
-	async render() {
+	/**
+	 * Builds and renders a map into `container`, resolving only once it's fully usable.
+	 * There is no other way to obtain a `CountryMap` — this keeps "constructed" and "ready
+	 * to call methods on" the same moment, so callers never hold a half-built instance.
+	 *
+	 * `container` must already have a non-zero size (e.g. via CSS) when this is called — the
+	 * initial projection and zoom bounds are computed once, synchronously, from its bounding rect.
+	 *
+	 * @param country - Which country's topology to load. Only {@link Country.PORTUGAL} works today.
+	 * @param container - The element the map's `<svg>` will be appended into. cartis owns this
+	 *   element's contents from here on — don't render anything else inside it yourself.
+	 * @param options - Initial styling for municipality paths. See {@link MapOptions}.
+	 * @returns A promise that resolves with a fully-rendered `CountryMap`, or rejects if
+	 *   `container` isn't a usable element.
+	 *
+	 * @example
+	 * ```ts
+	 * const map = await CountryMap.create(Country.PORTUGAL, containerEl);
+	 * map.styleMunicipalities(["Sintra"], { fill: "#86c227" });
+	 * // ...later, e.g. on unmount:
+	 * map.destroy();
+	 * ```
+	 */
+	static async create(
+		country: Country,
+		container: HTMLElement,
+		options: MapOptions = { style: DEFAULT_MAP_STYLES },
+	): Promise<CountryMap> {
+		const instance = new CountryMap(country, container, options);
+		await instance.render();
+		return instance;
+	}
+
+	private async render() {
 		// Start rendering.
 		this.updateMapState({ status: Status.RENDERING });
 
 		// Check if map exists.
 		// Set status to error in case the map container is not accessible.
 		if (!this.mapRenderer.container) {
-			console.warn("Map initialization is not possible because the map container is not defined.");
 			this.updateMapState({ status: Status.ERROR });
-			return;
+			throw new Error("Cannot render the map: the provided container element is not accessible.");
 		}
 
 		console.log(`Initializing map for ${this.mapState.country}...`);
 		console.log("Using options:", this.mapOptions);
-
-		// Clear any existing content.
-		// Avoids having more than one map.
-		this.clearScene();
 
 		// Convert topology to a usable format and render.
 		const topology: any = await getTopology(this.mapState.country);
@@ -80,6 +115,8 @@ export class CountryMap {
 			.attr("height", "100%")
 			.attr("width", "100%")
 			.style("display", "block");
+
+		this.mapRenderer.svgElement = svg.node() ?? undefined;
 
 		const g = svg.append("g");
 
@@ -113,21 +150,33 @@ export class CountryMap {
 		this.updateMapState({ status: Status.READY });
 	}
 
+	/**
+	 * Tears down this map instance: removes the `<svg>` it rendered and releases its internal
+	 * state. Only removes what this instance itself created, so it's always safe to call — even
+	 * on an instance you're about to discard in favor of a newer one sharing the same container
+	 * (e.g. React StrictMode remounting a component). Calling any other method afterwards is a
+	 * no-op (with a console warning) rather than a throw.
+	 */
 	destroy() {
-		this.clearRenderer();
-		this.clearScene();
+		// Remove only the DOM this instance itself created — never the whole container.
+		// A stale instance racing a newer one (e.g. two overlapping create() calls sharing
+		// a container) must be able to self-cleanup without touching the other's live map.
+		this.mapRenderer.svgElement?.remove();
+		this.mapRenderer = { container: this.mapRenderer.container };
 
 		this.updateMapState({ status: Status.DESTROYED });
 	}
 
-	private clearRenderer() {
-		this.mapRenderer = { container: this.mapRenderer.container };
-	}
-
-	private clearScene() {
-		d3.select(this.mapRenderer.container).selectAll("*").remove();
-	}
-
+	/**
+	 * Colors every municipality in `municipalities` with the same style, animated over
+	 * `mapOptions.style.duration` (default 300ms, set via {@link CountryMap.create}'s `options`).
+	 * Municipalities not in the list are left untouched.
+	 *
+	 * @param municipalities - Municipality names to style. Unmatched names are silently ignored.
+	 * @param options - Fill/stroke to apply. **Omit entirely to reset the matched municipalities
+	 *   back to the default style** — passing `{}` does nothing, since each field is applied only
+	 *   if present.
+	 */
 	public styleMunicipalities(municipalities: Municipality[], options?: StyleOptions) {
 		const targets = this.selectMunicipalities(municipalities)
 			.transition()
@@ -144,24 +193,104 @@ export class CountryMap {
 		if (options?.strokeWidth) targets.attr("stroke-width", options.strokeWidth);
 	}
 
+	/**
+	 * Colors every municipality belonging to any district in `districts` with the same style.
+	 * cartis has no separate district-boundary topology — this works by matching each
+	 * municipality's district against your list, so what you see is municipality borders, not
+	 * true district polygons (set `strokeWidth: 0` if you want same-district municipalities to
+	 * visually blend into one shape).
+	 *
+	 * @param districts - District names to style. Unmatched names are silently ignored.
+	 * @param options - Fill/stroke to apply. Omit entirely to reset matched municipalities back
+	 *   to the default style; `{}` does nothing (same caveat as {@link CountryMap.styleMunicipalities}).
+	 */
 	public styleDistricts(districts: District[], options?: StyleOptions) {
 		const targets = this.selectDistricts(districts)
 			.transition()
 			.duration(this.mapOptions.style?.duration ?? 300);
+
+		if (!options) {
+			targets.attr("fill", DEFAULT_MAP_STYLES.fill);
+			targets.attr("stroke", DEFAULT_MAP_STYLES.strokeColor);
+			targets.attr("stroke-width", DEFAULT_MAP_STYLES.strokeWidth);
+		}
 
 		if (options?.fill) targets.attr("fill", options.fill);
 		if (options?.strokeColor) targets.attr("stroke", options.strokeColor);
 		if (options?.strokeWidth) targets.attr("stroke-width", options.strokeWidth);
 	}
 
-	public jumpToMunicipality(municipality: Municipality, options: JumpOptions = {}) {
-		if (!this.mapRenderer.container) {
-			console.warn("Jumping to municipality is not possible because the map container is not initialized.");
+	/**
+	 * Resets the zoom/pan to show the whole country, animated. The only way to get back to the
+	 * initial full-country view — {@link CountryMap.fitToMunicipalities} and
+	 * {@link CountryMap.fitToDistricts} require at least one match and won't do this for you.
+	 *
+	 * @param options.duration - Transition duration in ms (default 1000).
+	 */
+	public fitToCountry(options: Pick<FitOptions, "duration"> = {}) {
+		if (!this.mapRenderer.container || !this.mapRenderer.zoomBehavior) {
+			console.warn("Fitting to country is not possible because the map has not finished rendering.");
 			return;
 		}
 
-		const target = this.selectMunicipalities([municipality]);
-		const [[x0, y0], [x1, y1]] = this.mapRenderer.pathGenerator.bounds(target.datum());
+		const svg = d3.select(this.mapRenderer.container).select("svg");
+		svg
+			.transition()
+			.duration(options.duration ?? 1000)
+			.call(this.mapRenderer.zoomBehavior.transform, d3.zoomIdentity);
+	}
+
+	/**
+	 * Zooms/pans to frame the union of the given municipalities' bounds, animated. Pass a single
+	 * name to jump to just that one municipality.
+	 *
+	 * @param municipalities - Municipality names to fit into view. Must be non-empty — an empty
+	 *   array logs a warning and does nothing (it does **not** fall back to
+	 *   {@link CountryMap.fitToCountry}).
+	 * @param options.zoom - Extra scale multiplier on top of the computed tight fit (default 1).
+	 *   Use `< 1` to zoom out further than a tight fit, e.g. `{ zoom: 0.35 }` for a wide establishing
+	 *   shot around the target. The resulting scale is capped at 5x regardless of this multiplier.
+	 * @param options.duration - Transition duration in ms (default 1000).
+	 */
+	public fitToMunicipalities(municipalities: Municipality[], options: FitOptions = {}) {
+		if (municipalities.length === 0) {
+			console.warn("fitToMunicipalities requires at least one municipality.");
+			return;
+		}
+
+		this.fitToFeatures(this.selectMunicipalities(municipalities).data(), options);
+	}
+
+	/**
+	 * Zooms/pans to frame the union of bounds of every municipality belonging to any district in
+	 * `districts`, animated. Same underlying mechanism as {@link CountryMap.fitToMunicipalities} —
+	 * see its `options` docs for `zoom`/`duration`.
+	 *
+	 * @param districts - District names to fit into view. Must be non-empty — an empty array logs
+	 *   a warning and does nothing.
+	 */
+	public fitToDistricts(districts: District[], options: FitOptions = {}) {
+		if (districts.length === 0) {
+			console.warn("fitToDistricts requires at least one district.");
+			return;
+		}
+
+		this.fitToFeatures(this.selectDistricts(districts).data(), options);
+	}
+
+	private fitToFeatures(features: any[], options: FitOptions) {
+		if (!this.mapRenderer.container || !this.mapRenderer.pathGenerator || !this.mapRenderer.zoomBehavior) {
+			console.warn("Fitting is not possible because the map has not finished rendering.");
+			return;
+		}
+
+		if (features.length === 0) {
+			console.warn("Fitting is not possible because no matching features were found.");
+			return;
+		}
+
+		const collection = { type: "FeatureCollection", features };
+		const [[x0, y0], [x1, y1]] = this.mapRenderer.pathGenerator.bounds(collection as any);
 
 		const { width, height } = this.mapRenderer.container.getBoundingClientRect();
 		const targetWidth = x1 - x0;
@@ -180,6 +309,7 @@ export class CountryMap {
 			.call(this.mapRenderer.zoomBehavior.transform, transform);
 	}
 
+	/** Zooms in by a fixed 1.25x step, centered on the current view, over 200ms. Capped at 10x total. */
 	public zoomIn() {
 		if (!this.mapRenderer.container) return;
 		if (!this.mapRenderer.zoomBehavior) return;
@@ -188,6 +318,7 @@ export class CountryMap {
 		svg.transition().duration(200).call(this.mapRenderer.zoomBehavior.scaleBy, 1.25);
 	}
 
+	/** Zooms out by a fixed 0.75x step, centered on the current view, over 200ms. Capped at 1x (full country) total. */
 	public zoomOut() {
 		if (!this.mapRenderer.container) return;
 		if (!this.mapRenderer.zoomBehavior) return;
