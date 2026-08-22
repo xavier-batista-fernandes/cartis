@@ -11,4 +11,4 @@ dist
 .env
 
 # Agents
-AGENTS.md
+CLAUDE.md
