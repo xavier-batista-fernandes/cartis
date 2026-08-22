@@ -15,7 +15,7 @@
 
 		"types": ["node"], // Include type definitions for Node.js.
 
-		// "strict": true, // Compiling with strict type-checking options enabled.
+		"strict": true, // Compiling with strict type-checking options enabled.
 		"skipLibCheck": true
 	},
 
