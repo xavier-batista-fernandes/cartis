@@ -9,6 +9,3 @@ dist
 
 # Environment variables
 .env
-
-# Agents
-CLAUDE.md
