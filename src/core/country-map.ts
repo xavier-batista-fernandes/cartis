@@ -12,6 +12,14 @@ import type { StyleOptions } from "../types/options/style.options.js";
 import { Status } from "../types/status.js";
 import { getTopology } from "./utils.js";
 
+// How long to wait after the container stops resizing before reprojecting. A resize (e.g. a
+// sidebar collapsing) can fire many ResizeObserver callbacks in a row while it's animating —
+// reprojecting on every one of them means re-running the projection and rewriting every path's
+// `d` attribute on every frame, which is expensive enough (hundreds of paths) to visibly drag
+// down the CSS transition driving the resize itself. Debouncing to fire once, shortly after the
+// container settles, keeps that cost to a single pass instead of one per frame.
+const RESIZE_DEBOUNCE_MS = 150;
+
 /**
  * Renders an interactive, zoomable SVG map of a country's municipalities using D3 and TopoJSON.
  *
@@ -25,6 +33,8 @@ export class CountryMap {
 	private mapOptions: MapOptions;
 	private mapState: MapState;
 	private mapRenderer: MapRenderer;
+	private resizeDebounceHandle?: number;
+	private lastReprojectSize?: { width: number; height: number };
 
 	private constructor(country: Country, container: HTMLElement, options: MapOptions = { style: DEFAULT_MAP_STYLES }) {
 		this.mapState = { status: Status.IDLE, country };
@@ -95,18 +105,7 @@ export class CountryMap {
 
 		// Render the map.
 		const { width, height } = this.mapRenderer.container.getBoundingClientRect();
-
-		// Create a projection that leaves 5% padding on every side
-		this.mapRenderer.geoProjection = d3.geoMercator().fitExtent(
-			[
-				[width * 0.05, height * 0.05],
-				[width * 0.95, height * 0.95],
-			],
-			this.mapRenderer.collection,
-		);
-
-		// Create a path generator using the projection
-		this.mapRenderer.pathGenerator = d3.geoPath().projection(this.mapRenderer.geoProjection).digits(3);
+		const pathGenerator = this.reproject(width, height);
 
 		// Append data to the map
 		const svg = d3
@@ -141,13 +140,94 @@ export class CountryMap {
 			.data(this.mapRenderer.collection.features)
 			.enter()
 			.append("path")
-			.attr("d", this.mapRenderer.pathGenerator)
+			.attr("d", pathGenerator)
 			.attr("fill", styles.fill ?? DEFAULT_MAP_STYLES.fill)
 			.attr("stroke", styles.strokeColor ?? DEFAULT_MAP_STYLES.strokeColor)
 			.attr("stroke-width", styles.strokeWidth ?? DEFAULT_MAP_STYLES.strokeWidth)
 			.on("mouseenter", (item) => console.log(item.target.__data__.properties.NAME_2));
 
 		this.updateMapState({ status: Status.READY });
+
+		this.mapRenderer.resizeObserver = new ResizeObserver((entries) => {
+			window.clearTimeout(this.resizeDebounceHandle);
+			this.resizeDebounceHandle = window.setTimeout(() => this.handleResize(entries[0]), RESIZE_DEBOUNCE_MS);
+		});
+		this.mapRenderer.resizeObserver.observe(this.mapRenderer.container);
+	}
+
+	/**
+	 * Builds (or rebuilds) the projection and path generator for the given container size,
+	 * leaving 5% padding on every side. Called once during initial render, and again on every
+	 * container resize so paths can be redrawn against the current dimensions.
+	 */
+	private reproject(width: number, height: number) {
+		this.mapRenderer.geoProjection = d3.geoMercator().fitExtent(
+			[
+				[width * 0.05, height * 0.05],
+				[width * 0.95, height * 0.95],
+			],
+			this.mapRenderer.collection,
+		);
+
+		this.mapRenderer.pathGenerator = d3.geoPath().projection(this.mapRenderer.geoProjection).digits(3);
+		this.lastReprojectSize = { width, height };
+		return this.mapRenderer.pathGenerator;
+	}
+
+	/**
+	 * Re-fits the map to a resized container: recomputes the projection and updates every
+	 * existing path's `d` attribute in place, without touching `fill`/`stroke` — so any coloring
+	 * applied via {@link CountryMap.styleMunicipalities}/{@link CountryMap.styleDistricts} survives
+	 * a resize. Also updates the zoom's pan bounds and re-derives a zoom transform that keeps
+	 * the same geographic point centered at the same zoom level under the new projection —
+	 * *not* a reset to a full-country fit, which would otherwise clobber any pan/zoom a caller
+	 * currently has active (e.g. a consumer's own {@link CountryMap.fitToMunicipalities} view).
+	 */
+	private handleResize(entry: ResizeObserverEntry) {
+		if (!this.mapRenderer.container || !this.mapRenderer.zoomBehavior) return;
+
+		const { width, height } = entry.contentRect;
+		if (width === 0 || height === 0) return;
+
+		const svg = d3.select(this.mapRenderer.container).select<SVGSVGElement>("svg");
+		const svgNode = svg.node();
+
+		// Capture what's currently centered on screen, and how zoomed in it is, *before*
+		// reprojecting overwrites the old projection — expressed as a geographic coordinate and
+		// a zoom multiplier (both independent of container size), not raw pixels, since pixels
+		// are meaningless to preserve across a resize of the container itself.
+		const oldProjection = this.mapRenderer.geoProjection;
+		const lastSize = this.lastReprojectSize;
+		let centerGeo: [number, number] | null = null;
+		let zoomK = 1;
+		if (svgNode && oldProjection?.invert && lastSize) {
+			const oldTransform = d3.zoomTransform(svgNode);
+			const oldCenterPixel = oldTransform.invert([lastSize.width / 2, lastSize.height / 2]);
+			centerGeo = oldProjection.invert(oldCenterPixel);
+			zoomK = oldTransform.k;
+		}
+
+		const pathGenerator = this.reproject(width, height);
+		svg.select("g").selectAll("path").attr("d", pathGenerator);
+
+		this.mapRenderer.zoomBehavior.translateExtent([
+			[0, 0],
+			[width, height],
+		]);
+
+		let newTransform = d3.zoomIdentity;
+		const newProjection = this.mapRenderer.geoProjection;
+		const newCenterPixel = newProjection && centerGeo ? newProjection(centerGeo) : null;
+		if (newCenterPixel) {
+			newTransform = d3.zoomIdentity
+				.translate(width / 2 - zoomK * newCenterPixel[0], height / 2 - zoomK * newCenterPixel[1])
+				.scale(zoomK);
+		}
+
+		// Untransitioned, unlike fitToCountry() — a transitioned reset here would visually fight
+		// with whatever CSS transition is still settling the container itself (e.g. a sidebar
+		// collapsing) at the moment this debounced handler fires.
+		svg.call(this.mapRenderer.zoomBehavior.transform, newTransform);
 	}
 
 	/**
@@ -158,6 +238,9 @@ export class CountryMap {
 	 * no-op (with a console warning) rather than a throw.
 	 */
 	destroy() {
+		this.mapRenderer.resizeObserver?.disconnect();
+		window.clearTimeout(this.resizeDebounceHandle);
+
 		// Remove only the DOM this instance itself created — never the whole container.
 		// A stale instance racing a newer one (e.g. two overlapping create() calls sharing
 		// a container) must be able to self-cleanup without touching the other's live map.

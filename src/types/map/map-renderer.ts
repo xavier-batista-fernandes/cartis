@@ -7,4 +7,5 @@ export interface MapRenderer {
 	pathGenerator?: GeoPath<any, any>;
 	zoomBehavior?: ZoomBehavior<any, any>;
 	svgElement?: SVGSVGElement;
+	resizeObserver?: ResizeObserver;
 }
