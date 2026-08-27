@@ -3,6 +3,7 @@ import * as topojson from "topojson-client";
 import { DEFAULT_MAP_STYLES } from "../constants/map-styles.default.js";
 import type { Country } from "../types/country.js";
 import type { District } from "../types/district.js";
+import type { MunicipalityInteractionEvent } from "../types/events/municipality-interaction-event.js";
 import type { MapRenderer } from "../types/map/map-renderer.js";
 import type { MapState } from "../types/map/map-state.js";
 import type { Municipality } from "../types/municipality.js";
@@ -35,6 +36,9 @@ export class CountryMap {
 	private mapRenderer: MapRenderer;
 	private resizeDebounceHandle?: number;
 	private lastReprojectSize?: { width: number; height: number };
+	private hoverHandler?: (event: MunicipalityInteractionEvent) => void;
+	private leaveHandler?: () => void;
+	private clickHandler?: (event: MunicipalityInteractionEvent) => void;
 
 	private constructor(country: Country, container: HTMLElement, options: MapOptions = { style: DEFAULT_MAP_STYLES }) {
 		this.mapState = { status: Status.IDLE, country };
@@ -96,6 +100,8 @@ export class CountryMap {
 			throw new Error("Cannot render the map: the provided container element is not accessible.");
 		}
 
+		const container = this.mapRenderer.container;
+
 		console.log(`Initializing map for ${this.mapState.country}...`);
 		console.log("Using options:", this.mapOptions);
 
@@ -144,7 +150,18 @@ export class CountryMap {
 			.attr("fill", styles.fill ?? DEFAULT_MAP_STYLES.fill)
 			.attr("stroke", styles.strokeColor ?? DEFAULT_MAP_STYLES.strokeColor)
 			.attr("stroke-width", styles.strokeWidth ?? DEFAULT_MAP_STYLES.strokeWidth)
-			.on("mouseenter", (item) => console.log(item.target.__data__.properties.NAME_2));
+			.style("cursor", "pointer")
+			.on("mousemove", (event: MouseEvent, datum: any) => {
+				if (!this.hoverHandler) return;
+				const [x, y] = d3.pointer(event, container);
+				this.hoverHandler({ municipality: datum.properties.NAME_2, district: datum.properties.NAME_1, x, y });
+			})
+			.on("mouseleave", () => this.leaveHandler?.())
+			.on("click", (event: MouseEvent, datum: any) => {
+				if (!this.clickHandler) return;
+				const [x, y] = d3.pointer(event, container);
+				this.clickHandler({ municipality: datum.properties.NAME_2, district: datum.properties.NAME_1, x, y });
+			});
 
 		this.updateMapState({ status: Status.READY });
 
@@ -248,6 +265,47 @@ export class CountryMap {
 		this.mapRenderer = { container: this.mapRenderer.container };
 
 		this.updateMapState({ status: Status.DESTROYED });
+	}
+
+	/**
+	 * Registers a handler called continuously while the pointer moves over any municipality,
+	 * with the resolved municipality/district and the pointer's position relative to the map's
+	 * container (handy for positioning a tooltip). Only one handler is active at a time — a new
+	 * registration replaces the previous one, matching D3's own un-namespaced `.on()` semantics.
+	 *
+	 * @returns An unsubscribe function. Calling it only clears the handler if it's still the one
+	 *   most recently registered, so an unsubscribe from a stale registration can't clobber a
+	 *   newer one.
+	 */
+	public onMunicipalityHover(handler: (event: MunicipalityInteractionEvent) => void): () => void {
+		this.hoverHandler = handler;
+		return () => {
+			if (this.hoverHandler === handler) this.hoverHandler = undefined;
+		};
+	}
+
+	/**
+	 * Registers a handler called when the pointer leaves a municipality (and isn't over another
+	 * one). Pairs with {@link CountryMap.onMunicipalityHover} — e.g. to hide a tooltip. Same
+	 * single-active-handler and unsubscribe semantics as `onMunicipalityHover`.
+	 */
+	public onMunicipalityLeave(handler: () => void): () => void {
+		this.leaveHandler = handler;
+		return () => {
+			if (this.leaveHandler === handler) this.leaveHandler = undefined;
+		};
+	}
+
+	/**
+	 * Registers a handler called when a municipality is clicked (or tapped, on touch devices),
+	 * with the same event shape as {@link CountryMap.onMunicipalityHover}. Same
+	 * single-active-handler and unsubscribe semantics as `onMunicipalityHover`.
+	 */
+	public onMunicipalityClick(handler: (event: MunicipalityInteractionEvent) => void): () => void {
+		this.clickHandler = handler;
+		return () => {
+			if (this.clickHandler === handler) this.clickHandler = undefined;
+		};
 	}
 
 	/**
