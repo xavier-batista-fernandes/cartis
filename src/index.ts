@@ -4,6 +4,7 @@ export { Country } from "./types/country.js";
 export type { District } from "./types/district.js";
 export { getDistrictsArray } from "./types/district.js";
 export type { MunicipalityInteractionEvent } from "./types/events/municipality-interaction-event.js";
+export type { ZoomChangeEvent } from "./types/events/zoom-change-event.js";
 export type { Municipality } from "./types/municipality.js";
 export { getMunicipalitiesArray } from "./types/municipality.js";
 export type { FitOptions } from "./types/options/fit.options.js";

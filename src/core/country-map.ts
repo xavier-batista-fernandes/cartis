@@ -4,6 +4,7 @@ import { DEFAULT_MAP_STYLES } from "../constants/map-styles.default.js";
 import type { Country } from "../types/country.js";
 import type { District } from "../types/district.js";
 import type { MunicipalityInteractionEvent } from "../types/events/municipality-interaction-event.js";
+import type { ZoomChangeEvent } from "../types/events/zoom-change-event.js";
 import type { MapRenderer } from "../types/map/map-renderer.js";
 import type { MapState } from "../types/map/map-state.js";
 import type { Municipality } from "../types/municipality.js";
@@ -39,6 +40,7 @@ export class CountryMap {
 	private hoverHandler?: (event: MunicipalityInteractionEvent) => void;
 	private leaveHandler?: () => void;
 	private clickHandler?: (event: MunicipalityInteractionEvent) => void;
+	private zoomChangeHandler?: (event: ZoomChangeEvent) => void;
 
 	private constructor(country: Country, container: HTMLElement, options: MapOptions = { style: DEFAULT_MAP_STYLES }) {
 		this.mapState = { status: Status.IDLE, country };
@@ -125,9 +127,16 @@ export class CountryMap {
 
 		const g = svg.append("g");
 
-		/* Creating a zoom behavior and attaching it to the svg */
+		/* Creating a zoom behavior. It stays wired to `.on("zoom", ...)` below and reachable via
+		 * zoomIn()/zoomOut()/fitTo*() either way — those call the behavior's imperative setters
+		 * (`.transform`/`.scaleBy`), which fire that handler directly and don't depend on the
+		 * interactive listeners `svg.call()` attaches. Skipping that `.call()` when zoom is
+		 * disabled removes only the pointer/wheel/touch listeners, leaving the programmatic API
+		 * intact — so a "fixed" map can still be recentered by a caller, just never by the user. */
 		this.mapRenderer.zoomBehavior = d3.zoom();
-		svg.call(this.mapRenderer.zoomBehavior);
+		if (this.mapOptions.zoom?.enabled !== false) {
+			svg.call(this.mapRenderer.zoomBehavior);
+		}
 
 		/* Zoom events are detected at the svg level, and its handler applies the transform to the g element */
 		this.mapRenderer.zoomBehavior.scaleExtent([1, 10]);
@@ -137,31 +146,42 @@ export class CountryMap {
 		]);
 		this.mapRenderer.zoomBehavior.on("zoom", ({ transform }) => {
 			g.attr("transform", transform);
+			this.zoomChangeHandler?.({
+				scale: transform.k,
+				isDefaultView: transform.k === 1 && transform.x === 0 && transform.y === 0,
+			});
 		});
 
 		// Bind every feature (municipality) to a path element
 		const styles = this.mapOptions.style ?? {};
+		const interactive = this.mapOptions.interactive !== false;
 		const paths = g.selectAll("path");
-		paths
+		const boundPaths = paths
 			.data(this.mapRenderer.collection.features)
 			.enter()
 			.append("path")
 			.attr("d", pathGenerator)
 			.attr("fill", styles.fill ?? DEFAULT_MAP_STYLES.fill)
 			.attr("stroke", styles.strokeColor ?? DEFAULT_MAP_STYLES.strokeColor)
-			.attr("stroke-width", styles.strokeWidth ?? DEFAULT_MAP_STYLES.strokeWidth)
-			.style("cursor", "pointer")
-			.on("mousemove", (event: MouseEvent, datum: any) => {
-				if (!this.hoverHandler) return;
-				const [x, y] = d3.pointer(event, container);
-				this.hoverHandler({ municipality: datum.properties.NAME_2, district: datum.properties.NAME_1, x, y });
-			})
-			.on("mouseleave", () => this.leaveHandler?.())
-			.on("click", (event: MouseEvent, datum: any) => {
-				if (!this.clickHandler) return;
-				const [x, y] = d3.pointer(event, container);
-				this.clickHandler({ municipality: datum.properties.NAME_2, district: datum.properties.NAME_1, x, y });
-			});
+			.attr("stroke-width", styles.strokeWidth ?? DEFAULT_MAP_STYLES.strokeWidth);
+
+		// A read-only map (no handlers ever registered) skips both the cursor and the listeners —
+		// a pointer cursor with nothing behind it just implies clickability that isn't there.
+		if (interactive) {
+			boundPaths
+				.style("cursor", "pointer")
+				.on("mousemove", (event: MouseEvent, datum: any) => {
+					if (!this.hoverHandler) return;
+					const [x, y] = d3.pointer(event, container);
+					this.hoverHandler({ municipality: datum.properties.NAME_2, district: datum.properties.NAME_1, x, y });
+				})
+				.on("mouseleave", () => this.leaveHandler?.())
+				.on("click", (event: MouseEvent, datum: any) => {
+					if (!this.clickHandler) return;
+					const [x, y] = d3.pointer(event, container);
+					this.clickHandler({ municipality: datum.properties.NAME_2, district: datum.properties.NAME_1, x, y });
+				});
+		}
 
 		this.updateMapState({ status: Status.READY });
 
@@ -178,16 +198,25 @@ export class CountryMap {
 	 * container resize so paths can be redrawn against the current dimensions.
 	 */
 	private reproject(width: number, height: number) {
+		// A container that's `display:none` at the moment this runs (e.g. a consumer that mounts
+		// the map into a currently-hidden tab/panel) reports 0×0 here. `fitExtent` on a zero-area
+		// box divides by zero internally, producing a NaN projection that then poisons every path's
+		// `d` attribute and every later `fitTo*`/zoom transform. Clamping to a 1px floor keeps the
+		// projection finite (degenerate, but harmless) until the container is actually shown, at
+		// which point the existing resize-driven reproject in `handleResize` corrects it for real.
+		const safeWidth = Math.max(width, 1);
+		const safeHeight = Math.max(height, 1);
+
 		this.mapRenderer.geoProjection = d3.geoMercator().fitExtent(
 			[
-				[width * 0.05, height * 0.05],
-				[width * 0.95, height * 0.95],
+				[safeWidth * 0.05, safeHeight * 0.05],
+				[safeWidth * 0.95, safeHeight * 0.95],
 			],
 			this.mapRenderer.collection,
 		);
 
 		this.mapRenderer.pathGenerator = d3.geoPath().projection(this.mapRenderer.geoProjection).digits(3);
-		this.lastReprojectSize = { width, height };
+		this.lastReprojectSize = { width: safeWidth, height: safeHeight };
 		return this.mapRenderer.pathGenerator;
 	}
 
@@ -309,6 +338,27 @@ export class CountryMap {
 	}
 
 	/**
+	 * Registers a handler called whenever the map's zoom/pan transform changes — from user
+	 * interaction (wheel, drag, pinch) as well as `zoomIn`/`zoomOut`/`fitTo*`/`fitToCountry`, since
+	 * all of them drive the same underlying transform. Fires once synchronously on registration
+	 * with the current transform, so a consumer building UI state (e.g. a "reset view" button that
+	 * should only show once the view has moved) doesn't have to wait for the first change to know
+	 * where things stand. Same single-active-handler and unsubscribe semantics as
+	 * {@link CountryMap.onMunicipalityHover}.
+	 */
+	public onZoomChange(handler: (event: ZoomChangeEvent) => void): () => void {
+		this.zoomChangeHandler = handler;
+
+		const svg = this.mapRenderer.container && d3.select(this.mapRenderer.container).select<SVGSVGElement>("svg").node();
+		const transform = svg ? d3.zoomTransform(svg) : d3.zoomIdentity;
+		handler({ scale: transform.k, isDefaultView: transform.k === 1 && transform.x === 0 && transform.y === 0 });
+
+		return () => {
+			if (this.zoomChangeHandler === handler) this.zoomChangeHandler = undefined;
+		};
+	}
+
+	/**
 	 * Colors every municipality in `municipalities` with the same style, animated over
 	 * `mapOptions.style.duration` (default 300ms, set via {@link CountryMap.create}'s `options`).
 	 * Municipalities not in the list are left untouched.
@@ -329,9 +379,11 @@ export class CountryMap {
 			targets.attr("stroke-width", DEFAULT_MAP_STYLES.strokeWidth);
 		}
 
-		if (options?.fill) targets.attr("fill", options.fill);
-		if (options?.strokeColor) targets.attr("stroke", options.strokeColor);
-		if (options?.strokeWidth) targets.attr("stroke-width", options.strokeWidth);
+		// `!== undefined`, not truthy checks: `strokeWidth: 0` (documented as how to hide borders)
+		// and `fill`/`strokeColor: ""` are legitimate values a truthy check silently drops.
+		if (options?.fill !== undefined) targets.attr("fill", options.fill);
+		if (options?.strokeColor !== undefined) targets.attr("stroke", options.strokeColor);
+		if (options?.strokeWidth !== undefined) targets.attr("stroke-width", options.strokeWidth);
 	}
 
 	/**
@@ -356,9 +408,9 @@ export class CountryMap {
 			targets.attr("stroke-width", DEFAULT_MAP_STYLES.strokeWidth);
 		}
 
-		if (options?.fill) targets.attr("fill", options.fill);
-		if (options?.strokeColor) targets.attr("stroke", options.strokeColor);
-		if (options?.strokeWidth) targets.attr("stroke-width", options.strokeWidth);
+		if (options?.fill !== undefined) targets.attr("fill", options.fill);
+		if (options?.strokeColor !== undefined) targets.attr("stroke", options.strokeColor);
+		if (options?.strokeWidth !== undefined) targets.attr("stroke-width", options.strokeWidth);
 	}
 
 	/**
@@ -430,10 +482,17 @@ export class CountryMap {
 			return;
 		}
 
+		const { width, height } = this.mapRenderer.container.getBoundingClientRect();
+		if (width === 0 || height === 0) {
+			// `display:none` (or not yet laid out) — nothing to fit into. Skipping rather than
+			// computing against a zero-size box, which would otherwise collapse the resulting
+			// transform to scale 0 for no visible reason.
+			return;
+		}
+
 		const collection = { type: "FeatureCollection", features };
 		const [[x0, y0], [x1, y1]] = this.mapRenderer.pathGenerator.bounds(collection as any);
 
-		const { width, height } = this.mapRenderer.container.getBoundingClientRect();
 		const targetWidth = x1 - x0;
 		const targetHeight = y1 - y0;
 		const scale = Math.min(5, 0.5 / Math.max(targetWidth / width, targetHeight / height)) * (options.zoom ?? 1);
