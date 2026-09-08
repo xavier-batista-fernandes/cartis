@@ -10,6 +10,15 @@ export async function getTopology(country: Country): Promise<any> {
 	}
 }
 
+export async function getDistrictTopology(country: Country): Promise<any> {
+	switch (country) {
+		case Country.PORTUGAL:
+			return await import("../data/portugal/districts.json");
+		default:
+			throw new Error(`District topology data for country ${country} is not available.`);
+	}
+}
+
 /**
  * Picks a uniformly random municipality name for the given country. Handy for demos, "guess a
  * random one" game modes, or decorative animated maps.

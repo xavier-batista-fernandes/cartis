@@ -1,8 +1,10 @@
 export { CountryMap } from "./core/country-map.js";
+export { DistrictMap } from "./core/district-map.js";
 export { randomMunicipality } from "./core/utils.js";
 export { Country } from "./types/country.js";
 export type { District } from "./types/district.js";
 export { getDistrictsArray } from "./types/district.js";
+export type { DistrictInteractionEvent } from "./types/events/district-interaction-event.js";
 export type { MunicipalityInteractionEvent } from "./types/events/municipality-interaction-event.js";
 export type { ZoomChangeEvent } from "./types/events/zoom-change-event.js";
 export type { Municipality } from "./types/municipality.js";
