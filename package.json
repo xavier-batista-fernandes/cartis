@@ -5,6 +5,10 @@
 	"license": "MIT",
 	"author": "Xavier Fernandes",
 	"homepage": "https://github.com/xavier-batista-fernandes/cartis#readme",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/xavier-batista-fernandes/cartis.git"
+	},
 	"type": "module",
 	"module": "dist/index.js",
 	"types": "dist/index.d.ts",
