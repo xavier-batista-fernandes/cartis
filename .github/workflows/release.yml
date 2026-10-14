@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write # npm trusted publishing (OIDC) and provenance
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm 11.5.1 or later.
+      - name: Update npm
+        run: npm install -g npm@^11.5.1
+
+      - name: Check the tag matches package.json
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $version"
+            exit 1
+          fi
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint and format (Biome)
+        run: npx biome ci .
+
+      - name: Build
+        run: npm run build
+
+      - name: Import the built entrypoint
+        run: node --input-type=module -e "await import('./dist/index.js')"
+
+      - name: Check package contents
+        run: npm pack --dry-run
+
+      # Prerelease versions (e.g. 0.6.0-beta.1) go to the beta dist-tag, like `npm run publish:beta`.
+      - name: Publish
+        run: |
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            npm publish --provenance --access public --tag beta
+          else
+            npm publish --provenance --access public
+          fi
