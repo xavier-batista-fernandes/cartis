@@ -12,6 +12,7 @@ import type { FitOptions } from "../types/options/fit.options.js";
 import type { MapOptions } from "../types/options/map.options.js";
 import type { StyleOptions } from "../types/options/style.options.js";
 import { Status } from "../types/status.js";
+import { applyStyle } from "./apply-style.js";
 import { getTopology } from "./utils.js";
 
 // How long to wait after the container stops resizing before reprojecting. A resize (e.g. a
@@ -235,7 +236,7 @@ export class CountryMap {
 		const { width, height } = entry.contentRect;
 		if (width === 0 || height === 0) return;
 
-		const svg = d3.select(this.mapRenderer.container).select<SVGSVGElement>("svg");
+		const svg = this.svgSelection();
 		const svgNode = svg.node();
 
 		// Capture what's currently centered on screen, and how zoomed in it is, *before*
@@ -287,6 +288,16 @@ export class CountryMap {
 		this.mapRenderer.resizeObserver?.disconnect();
 		window.clearTimeout(this.resizeDebounceHandle);
 
+		// Drop every registered handler and stop any zoom animation still in flight (e.g. a
+		// fitTo*() mid-transition). Removing the <svg> alone doesn't stop d3 from ticking that
+		// transition on the now-detached node, and every tick would still report to onZoomChange
+		// for up to a second after the map is gone.
+		this.hoverHandler = undefined;
+		this.leaveHandler = undefined;
+		this.clickHandler = undefined;
+		this.zoomChangeHandler = undefined;
+		if (this.mapRenderer.svgElement) this.svgSelection().interrupt();
+
 		// Remove only the DOM this instance itself created — never the whole container.
 		// A stale instance racing a newer one (e.g. two overlapping create() calls sharing
 		// a container) must be able to self-cleanup without touching the other's live map.
@@ -307,6 +318,8 @@ export class CountryMap {
 	 *   newer one.
 	 */
 	public onMunicipalityHover(handler: (event: MunicipalityInteractionEvent) => void): () => void {
+		if (!this.isUsable("onMunicipalityHover")) return () => {};
+
 		this.hoverHandler = handler;
 		return () => {
 			if (this.hoverHandler === handler) this.hoverHandler = undefined;
@@ -319,6 +332,8 @@ export class CountryMap {
 	 * single-active-handler and unsubscribe semantics as `onMunicipalityHover`.
 	 */
 	public onMunicipalityLeave(handler: () => void): () => void {
+		if (!this.isUsable("onMunicipalityLeave")) return () => {};
+
 		this.leaveHandler = handler;
 		return () => {
 			if (this.leaveHandler === handler) this.leaveHandler = undefined;
@@ -331,6 +346,8 @@ export class CountryMap {
 	 * single-active-handler and unsubscribe semantics as `onMunicipalityHover`.
 	 */
 	public onMunicipalityClick(handler: (event: MunicipalityInteractionEvent) => void): () => void {
+		if (!this.isUsable("onMunicipalityClick")) return () => {};
+
 		this.clickHandler = handler;
 		return () => {
 			if (this.clickHandler === handler) this.clickHandler = undefined;
@@ -347,9 +364,11 @@ export class CountryMap {
 	 * {@link CountryMap.onMunicipalityHover}.
 	 */
 	public onZoomChange(handler: (event: ZoomChangeEvent) => void): () => void {
+		if (!this.isUsable("onZoomChange")) return () => {};
+
 		this.zoomChangeHandler = handler;
 
-		const svg = this.mapRenderer.container && d3.select(this.mapRenderer.container).select<SVGSVGElement>("svg").node();
+		const svg = this.mapRenderer.svgElement;
 		const transform = svg ? d3.zoomTransform(svg) : d3.zoomIdentity;
 		handler({ scale: transform.k, isDefaultView: transform.k === 1 && transform.x === 0 && transform.y === 0 });
 
@@ -369,21 +388,9 @@ export class CountryMap {
 	 *   if present.
 	 */
 	public styleMunicipalities(municipalities: Municipality[], options?: StyleOptions) {
-		const targets = this.selectMunicipalities(municipalities)
-			.transition()
-			.duration(this.mapOptions.style?.duration ?? 300);
+		if (!this.isUsable("styleMunicipalities")) return;
 
-		if (!options) {
-			targets.attr("fill", DEFAULT_MAP_STYLES.fill);
-			targets.attr("stroke", DEFAULT_MAP_STYLES.strokeColor);
-			targets.attr("stroke-width", DEFAULT_MAP_STYLES.strokeWidth);
-		}
-
-		// `!== undefined`, not truthy checks: `strokeWidth: 0` (documented as how to hide borders)
-		// and `fill`/`strokeColor: ""` are legitimate values a truthy check silently drops.
-		if (options?.fill !== undefined) targets.attr("fill", options.fill);
-		if (options?.strokeColor !== undefined) targets.attr("stroke", options.strokeColor);
-		if (options?.strokeWidth !== undefined) targets.attr("stroke-width", options.strokeWidth);
+		applyStyle(this.selectMunicipalities(municipalities), this.mapOptions.style?.duration ?? 300, options);
 	}
 
 	/**
@@ -398,19 +405,9 @@ export class CountryMap {
 	 *   to the default style; `{}` does nothing (same caveat as {@link CountryMap.styleMunicipalities}).
 	 */
 	public styleDistricts(districts: District[], options?: StyleOptions) {
-		const targets = this.selectDistricts(districts)
-			.transition()
-			.duration(this.mapOptions.style?.duration ?? 300);
+		if (!this.isUsable("styleDistricts")) return;
 
-		if (!options) {
-			targets.attr("fill", DEFAULT_MAP_STYLES.fill);
-			targets.attr("stroke", DEFAULT_MAP_STYLES.strokeColor);
-			targets.attr("stroke-width", DEFAULT_MAP_STYLES.strokeWidth);
-		}
-
-		if (options?.fill !== undefined) targets.attr("fill", options.fill);
-		if (options?.strokeColor !== undefined) targets.attr("stroke", options.strokeColor);
-		if (options?.strokeWidth !== undefined) targets.attr("stroke-width", options.strokeWidth);
+		applyStyle(this.selectDistricts(districts), this.mapOptions.style?.duration ?? 300, options);
 	}
 
 	/**
@@ -421,12 +418,14 @@ export class CountryMap {
 	 * @param options.duration - Transition duration in ms (default 1000).
 	 */
 	public fitToCountry(options: Pick<FitOptions, "duration"> = {}) {
+		if (!this.isUsable("fitToCountry")) return;
+
 		if (!this.mapRenderer.container || !this.mapRenderer.zoomBehavior) {
 			console.warn("Fitting to country is not possible because the map has not finished rendering.");
 			return;
 		}
 
-		const svg = d3.select(this.mapRenderer.container).select("svg");
+		const svg = this.svgSelection();
 		svg
 			.transition()
 			.duration(options.duration ?? 1000)
@@ -446,6 +445,8 @@ export class CountryMap {
 	 * @param options.duration - Transition duration in ms (default 1000).
 	 */
 	public fitToMunicipalities(municipalities: Municipality[], options: FitOptions = {}) {
+		if (!this.isUsable("fitToMunicipalities")) return;
+
 		if (municipalities.length === 0) {
 			console.warn("fitToMunicipalities requires at least one municipality.");
 			return;
@@ -463,6 +464,8 @@ export class CountryMap {
 	 *   a warning and does nothing.
 	 */
 	public fitToDistricts(districts: District[], options: FitOptions = {}) {
+		if (!this.isUsable("fitToDistricts")) return;
+
 		if (districts.length === 0) {
 			console.warn("fitToDistricts requires at least one district.");
 			return;
@@ -502,7 +505,7 @@ export class CountryMap {
 			.scale(scale)
 			.translate(-(x0 + x1) / 2, -(y0 + y1) / 2);
 
-		const svg = d3.select(this.mapRenderer.container).select("svg");
+		const svg = this.svgSelection();
 		svg
 			.transition()
 			.duration(options.duration ?? 1000)
@@ -511,24 +514,28 @@ export class CountryMap {
 
 	/** Zooms in by a fixed 1.25x step, centered on the current view, over 200ms. Capped at 10x total. */
 	public zoomIn() {
+		if (!this.isUsable("zoomIn")) return;
+
 		if (!this.mapRenderer.container) return;
 		if (!this.mapRenderer.zoomBehavior) return;
 
-		const svg = d3.select(this.mapRenderer.container).select("svg");
+		const svg = this.svgSelection();
 		svg.transition().duration(200).call(this.mapRenderer.zoomBehavior.scaleBy, 1.25);
 	}
 
 	/** Zooms out by a fixed 0.75x step, centered on the current view, over 200ms. Capped at 1x (full country) total. */
 	public zoomOut() {
+		if (!this.isUsable("zoomOut")) return;
+
 		if (!this.mapRenderer.container) return;
 		if (!this.mapRenderer.zoomBehavior) return;
 
-		const svg = d3.select(this.mapRenderer.container).select("svg");
+		const svg = this.svgSelection();
 		svg.transition().duration(200).call(this.mapRenderer.zoomBehavior.scaleBy, 0.75);
 	}
 
 	private selectMunicipalities(municipalities: Municipality[]) {
-		const svg = d3.select(this.mapRenderer.container).select("svg");
+		const svg = this.svgSelection();
 		const g = svg.select("g");
 		const target = g.selectAll("path").filter((datum: any) => {
 			const datumMunicipality = datum.properties.NAME_2;
@@ -539,7 +546,7 @@ export class CountryMap {
 	}
 
 	private selectDistricts(districts: District[]) {
-		const svg = d3.select(this.mapRenderer.container).select("svg");
+		const svg = this.svgSelection();
 		const g = svg.select("g");
 		const target = g.selectAll("path").filter((datum: any) => {
 			const datumDistrict = datum.properties.NAME_1;
@@ -547,6 +554,25 @@ export class CountryMap {
 		});
 
 		return target;
+	}
+
+	/**
+	 * This instance's own `<svg>` — never looked up through the container, which a newer map
+	 * sharing that container (e.g. React StrictMode remounting) may have rendered into too.
+	 * Selecting `container.select("svg")` used to let a destroyed instance keep styling that
+	 * newer map. Empty once destroyed.
+	 */
+	private svgSelection() {
+		// d3 treats a missing node as an empty selection, so every chained call is a no-op.
+		return d3.select(this.mapRenderer.svgElement as SVGSVGElement);
+	}
+
+	/** Whether the instance can still be used — warns, and reports `false`, once destroyed. */
+	private isUsable(method: string) {
+		if (this.mapState.status !== Status.DESTROYED) return true;
+
+		console.warn(`${method} was called on a map that has already been destroyed — ignoring it.`);
+		return false;
 	}
 
 	private updateMapState(updates: Partial<MapState>) {
