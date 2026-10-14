@@ -107,7 +107,6 @@ merge into one shape.
 
 - Multi-country support (only Portugal)
 - Custom/runtime TopoJSON loading (the topology is bundled)
-- Click/hover event listeners
 - Per-feature choropleth coloring in a single call (each `style*` call applies one shared style to every match)
 - Tooltips, labels, markers/overlays
 
