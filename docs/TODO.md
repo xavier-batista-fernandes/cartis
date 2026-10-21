@@ -65,12 +65,12 @@ The short list of what to do next lives in `ROADMAP.md` under "Next".
 
 - [x] Add at least one lightweight verification path before future releases. `npm test` runs a Vitest + jsdom smoke
       test for both map classes, and CI runs it on every push and PR.
-- [~] Make sure the release process includes build verification and package dry-run verification. The scripts exist
-      (`npm run build`, `npm run publish:dryrun`) but nothing enforces running them.
+- [x] Make sure the release process includes build verification and package dry-run verification. The `Release`
+      workflow lints, builds, imports the entrypoint and runs `npm pack --dry-run` before every publish.
 
 ## Release planning
 
 - [x] Before the next release, make sure docs and basic runtime behavior are in a better state.
 - [x] Decide whether the next public release should be `0.2.0` rather than `0.1.1`. It was `0.2.0`.
-- [~] Make sure release notes explain what changed between versions. Each version is tagged (`v0.1.0` to `v0.5.0`),
-      but there is no `CHANGELOG.md`, so what changed lives only in the commit history.
+- [~] Make sure release notes explain what changed between versions. `RELEASING.md` keeps the notes empty while on
+      `0.x` and sets the template every release follows from `1.0.0`.
