@@ -34,6 +34,7 @@ This file provides guidance to Claude Code when working with code in this reposi
 - Current exports include `CountryMap`, `randomMunicipality`, `Country`, public types for districts/municipalities/map/style/fit options, and the string-matching/lookup utilities (`doStringsMatch`, `stringToSlug`, `stringToTitleCase`, `get*FromString`, `getMissing*`).
 
 ## Verification Expectations
-- There is no test suite or CI config in the repo.
-- For most changes, the minimum meaningful verification is `npm run build`.
+- `npm test` runs a Vitest + jsdom smoke test (`test/smoke.test.ts`) that creates, styles, fits and destroys both map
+  classes. CI (`.github/workflows/ci.yml`) runs it along with Biome, the build and a pack check.
+- For most changes, the minimum meaningful verification is `npm test && npm run build`.
 - If packaging or exports change, also run `npm run publish:dryrun`.

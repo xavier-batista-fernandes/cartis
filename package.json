@@ -1,6 +1,6 @@
 {
 	"name": "cartis",
-	"version": "0.6.0",
+	"version": "0.6.1",
 	"description": "Library for rendering maps as SVG or vector graphics.",
 	"license": "MIT",
 	"author": "Xavier Fernandes",
@@ -28,7 +28,8 @@
 		"format:write": "biome format --write",
 		"publish:lib": "npm run build && npm publish",
 		"publish:beta": "npm run build && npm publish --tag beta",
-		"publish:dryrun": "npm run build && npm publish --dry-run"
+		"publish:dryrun": "npm run build && npm publish --dry-run",
+		"test": "vitest run"
 	},
 	"dependencies": {
 		"d3": "7.9.0",
@@ -37,8 +38,12 @@
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.13",
 		"@types/d3": "^7.4.3",
+		"@types/geojson": "^7946.0.16",
 		"@types/node": "^25.0.9",
 		"@types/topojson-client": "^3.1.5",
-		"typescript": "^5.9.3"
+		"@types/topojson-specification": "^1.0.5",
+		"jsdom": "^29.1.1",
+		"typescript": "^5.9.3",
+		"vitest": "^5.0.5"
 	}
 }

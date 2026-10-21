@@ -1,10 +1,12 @@
 import fs from "node:fs";
 
 const MUNICIPALITIES_PATH = "src/data/portugal/municipalities.json";
+type Geometry = { properties: { NAME_1: string; NAME_2: string } };
+
 const data = JSON.parse(fs.readFileSync(MUNICIPALITIES_PATH, "utf8"));
 
 console.log("Generating districts.ts...");
-const districtNames = data.objects.municipalities.geometries.map((item: any) => item.properties.NAME_1);
+const districtNames = data.objects.municipalities.geometries.map((item: Geometry) => item.properties.NAME_1);
 const uniqueDistricts = [...new Set(districtNames)];
 
 const content1 = `export const DISTRICTS = [\n${uniqueDistricts
@@ -15,7 +17,7 @@ fs.writeFileSync("src/types/district.ts", content1);
 console.log("Generated districts.ts");
 
 console.log("Generating municipalities.ts...");
-const municipalityNames = data.objects.municipalities.geometries.map((item: any) => item.properties.NAME_2);
+const municipalityNames = data.objects.municipalities.geometries.map((item: Geometry) => item.properties.NAME_2);
 
 const content2 = `export const MUNICIPALITIES = [\n${municipalityNames
 	.map((n: string) => `  "${n}"`)

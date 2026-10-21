@@ -1,4 +1,4 @@
-import type { Selection } from "d3";
+import type { BaseType, Selection } from "d3";
 import { DEFAULT_MAP_STYLES } from "../constants/map-styles.default.js";
 import type { StyleOptions } from "../types/options/style.options.js";
 
@@ -13,7 +13,11 @@ import type { StyleOptions } from "../types/options/style.options.js";
  * stuck mid-way (e.g. "reset everything, then highlight a few" kept the highlighted paths' old
  * border). Naming per attribute means a later call only pre-empts the attributes it sets itself.
  */
-export function applyStyle(targets: Selection<any, any, any, any>, duration: number, options?: StyleOptions) {
+export function applyStyle<E extends BaseType, D, P extends BaseType, PD>(
+	targets: Selection<E, D, P, PD>,
+	duration: number,
+	options?: StyleOptions,
+) {
 	const style: StyleOptions = options ?? {
 		fill: DEFAULT_MAP_STYLES.fill,
 		strokeColor: DEFAULT_MAP_STYLES.strokeColor,
