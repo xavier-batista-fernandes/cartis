@@ -30,8 +30,7 @@ The short list of what to do next lives in `ROADMAP.md` under "Next".
 - [x] Review default option handling so optional fields are accessed safely.
 - [x] Review `MapOptions` and `StyleOptions` usage for missing/null/undefined cases (`!== undefined` checks, so
       `strokeWidth: 0` works).
-- [ ] Remove the debug `console.log` calls in `CountryMap.render()` (`src/core/country-map.ts`). Every map still
-      logs its country and options on creation.
+- [x] Remove the debug `console.log` calls in `CountryMap.render()` (`src/core/country-map.ts`).
 - [~] Review whether the current public methods on `CountryMap` are the right minimum API. Added since: `destroy`,
       `fitToCountry`, `fitToMunicipalities`, `fitToDistricts`, `zoomIn`, `zoomOut`, `onMunicipalityHover`,
       `onMunicipalityLeave`, `onMunicipalityClick`, `onZoomChange`. Still open: see the two bugs below and the
@@ -40,9 +39,8 @@ The short list of what to do next lives in `ROADMAP.md` under "Next".
       `styleMunicipalities` / `styleDistricts` / `onZoomChange` look up `container.select("svg")`, so on a destroyed
       instance they reach whatever `<svg>` is in the container now, which can be a newer instance's map. They should
       target this instance's own `svgElement` (and the docstring's promised console warning should exist).
-- [ ] Make `ZoomChangeEvent.isDefaultView` tolerate float residue. It uses an exact `x === 0 && y === 0 && k === 1`
-      check, and the transform re-derived after a resize carries values like `-9.09e-13`, so a freshly loaded map can
-      report it is not at its default view. Terras Lusas works around this with its own `isRestingView` helper.
+- [x] Make `ZoomChangeEvent.isDefaultView` tolerate float residue. The transform re-derived after a resize carries
+      values like `-9.09e-13`; the check now allows a 1e-6 tolerance (`isDefaultTransform` in `src/core/utils.ts`).
 - [ ] Fix the `FitOptions.zoom` docs. They say the result is capped at 5x "regardless of this multiplier", but the
       code applies the multiplier after the cap, which is how consumers get past it. Decide which is intended and make
       the docs and code agree.
@@ -65,9 +63,8 @@ The short list of what to do next lives in `ROADMAP.md` under "Next".
 
 ## Verification / quality
 
-- [ ] Add at least one lightweight verification path before future releases. There are still no tests and no CI.
-- [ ] Decide whether that verification should be tests, a smoke test, an example consumer, or another minimal
-      validation approach.
+- [x] Add at least one lightweight verification path before future releases. `npm test` runs a Vitest + jsdom smoke
+      test for both map classes, and CI runs it on every push and PR.
 - [~] Make sure the release process includes build verification and package dry-run verification. The scripts exist
       (`npm run build`, `npm run publish:dryrun`) but nothing enforces running them.
 

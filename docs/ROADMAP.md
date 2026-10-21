@@ -66,16 +66,11 @@ In practice the releases kept to the core: lifecycle, interaction and viewport c
 
 A short, ordered list. Each item is small enough to be its own release or part of one.
 
-1. **Fix the correctness gaps consumers already hit.**
-   - Methods called after `destroy()` reach whatever `<svg>` is now in the container, which can be a newer instance's
-     map. Select this instance's own `svgElement` instead, and warn as the `destroy()` docs promise.
-   - `isDefaultView` uses an exact zero check and misreports after a resize because of float residue. Compare with a
-     tolerance, so Terras Lusas can drop its `isRestingView` workaround.
+1. **Fix the correctness gaps consumers already hit.** The `destroy()` fixes shipped in `v0.6.0`; the
+   `isDefaultView` float-residue tolerance and the removal of `render()`'s debug logging ship in `v0.6.1`. Still open:
    - Make the `FitOptions.zoom` docs match the code (the multiplier is applied after the 5x cap).
-   - Remove the debug `console.log` calls from `CountryMap.render()`.
-2. **Add a lightweight verification path.** A small Vitest + jsdom smoke test that creates a map, styles it, fits it
-   and destroys it, for both map classes. This has been on the list since `v0.1.0` and should land before more
-   features do.
+2. **Add a lightweight verification path.** Done in `v0.6.1`: a Vitest + jsdom smoke test (`npm test`, run in CI)
+   creates, styles, fits and destroys both map classes. Grow it alongside item 3.
 3. **Share code between `CountryMap` and `DistrictMap`.** Rendering, resize, zoom, fit and event wiring are near
    copies of each other. Extracting the common part makes item 1's fixes land once and keeps the next features from
    being written twice.
