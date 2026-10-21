@@ -5,6 +5,7 @@ import type { Country } from "../types/country.js";
 import type { District } from "../types/district.js";
 import type { DistrictInteractionEvent } from "../types/events/district-interaction-event.js";
 import type { ZoomChangeEvent } from "../types/events/zoom-change-event.js";
+import type { DistrictProperties, MapFeature, MapFeatureCollection } from "../types/map/map-feature.js";
 import type { MapRenderer } from "../types/map/map-renderer.js";
 import type { MapState } from "../types/map/map-state.js";
 import type { FitOptions } from "../types/options/fit.options.js";
@@ -12,7 +13,8 @@ import type { MapOptions } from "../types/options/map.options.js";
 import type { StyleOptions } from "../types/options/style.options.js";
 import { Status } from "../types/status.js";
 import { applyStyle } from "./apply-style.js";
-import { getDistrictTopology, isDefaultTransform } from "./utils.js";
+import { getDistrictTopology } from "./topology.js";
+import { isDefaultTransform } from "./utils.js";
 
 // Same rationale as `CountryMap`'s constant of the same name — see there.
 const RESIZE_DEBOUNCE_MS = 150;
@@ -32,7 +34,7 @@ const RESIZE_DEBOUNCE_MS = 150;
 export class DistrictMap {
 	private mapOptions: MapOptions;
 	private mapState: MapState;
-	private mapRenderer: MapRenderer;
+	private mapRenderer: MapRenderer<DistrictProperties>;
 	private resizeDebounceHandle?: number;
 	private lastReprojectSize?: { width: number; height: number };
 	private hoverHandler?: (event: DistrictInteractionEvent) => void;
@@ -88,11 +90,12 @@ export class DistrictMap {
 
 		const container = this.mapRenderer.container;
 
-		const topology: any = await getDistrictTopology(this.mapState.country);
-		this.mapRenderer.collection = topojson.feature(topology, topology.objects.districts);
+		const topology = await getDistrictTopology(this.mapState.country);
+		const collection = topojson.feature(topology, topology.objects.districts);
+		this.mapRenderer.collection = collection;
 
 		const { width, height } = this.mapRenderer.container.getBoundingClientRect();
-		const pathGenerator = this.reproject(width, height);
+		const pathGenerator = this.reproject(collection, width, height);
 
 		const svg = d3
 			.select(this.mapRenderer.container)
@@ -126,9 +129,9 @@ export class DistrictMap {
 		// Bind every feature (district) to a path element
 		const styles = this.mapOptions.style ?? {};
 		const interactive = this.mapOptions.interactive !== false;
-		const paths = g.selectAll("path");
+		const paths = g.selectAll<SVGPathElement, MapFeature<DistrictProperties>>("path");
 		const boundPaths = paths
-			.data(this.mapRenderer.collection.features)
+			.data(collection.features)
 			.enter()
 			.append("path")
 			.attr("d", pathGenerator)
@@ -139,13 +142,13 @@ export class DistrictMap {
 		if (interactive) {
 			boundPaths
 				.style("cursor", "pointer")
-				.on("mousemove", (event: MouseEvent, datum: any) => {
+				.on("mousemove", (event: MouseEvent, datum: MapFeature<DistrictProperties>) => {
 					if (!this.hoverHandler) return;
 					const [x, y] = d3.pointer(event, container);
 					this.hoverHandler({ district: datum.properties.dis_name, x, y });
 				})
 				.on("mouseleave", () => this.leaveHandler?.())
-				.on("click", (event: MouseEvent, datum: any) => {
+				.on("click", (event: MouseEvent, datum: MapFeature<DistrictProperties>) => {
 					if (!this.clickHandler) return;
 					const [x, y] = d3.pointer(event, container);
 					this.clickHandler({ district: datum.properties.dis_name, x, y });
@@ -162,7 +165,7 @@ export class DistrictMap {
 	}
 
 	// Identical to `CountryMap.reproject` — see there for the padding/degenerate-size rationale.
-	private reproject(width: number, height: number) {
+	private reproject(collection: MapFeatureCollection<DistrictProperties>, width: number, height: number) {
 		const safeWidth = Math.max(width, 1);
 		const safeHeight = Math.max(height, 1);
 
@@ -171,7 +174,7 @@ export class DistrictMap {
 				[safeWidth * 0.05, safeHeight * 0.05],
 				[safeWidth * 0.95, safeHeight * 0.95],
 			],
-			this.mapRenderer.collection,
+			collection,
 		);
 
 		this.mapRenderer.pathGenerator = d3.geoPath().projection(this.mapRenderer.geoProjection).digits(3);
@@ -181,7 +184,7 @@ export class DistrictMap {
 
 	// Identical to `CountryMap.handleResize` — see there for the centered-point-preservation rationale.
 	private handleResize(entry: ResizeObserverEntry) {
-		if (!this.mapRenderer.container || !this.mapRenderer.zoomBehavior) return;
+		if (!this.mapRenderer.container || !this.mapRenderer.zoomBehavior || !this.mapRenderer.collection) return;
 
 		const { width, height } = entry.contentRect;
 		if (width === 0 || height === 0) return;
@@ -200,8 +203,8 @@ export class DistrictMap {
 			zoomK = oldTransform.k;
 		}
 
-		const pathGenerator = this.reproject(width, height);
-		svg.select("g").selectAll("path").attr("d", pathGenerator);
+		const pathGenerator = this.reproject(this.mapRenderer.collection, width, height);
+		svg.select("g").selectAll<SVGPathElement, MapFeature<DistrictProperties>>("path").attr("d", pathGenerator);
 
 		this.mapRenderer.zoomBehavior.translateExtent([
 			[0, 0],
@@ -364,8 +367,8 @@ export class DistrictMap {
 		const { width, height } = this.mapRenderer.container.getBoundingClientRect();
 		if (width === 0 || height === 0) return;
 
-		const collection = { type: "FeatureCollection", features };
-		const [[x0, y0], [x1, y1]] = this.mapRenderer.pathGenerator.bounds(collection as any);
+		const collection: MapFeatureCollection<DistrictProperties> = { type: "FeatureCollection", features };
+		const [[x0, y0], [x1, y1]] = this.mapRenderer.pathGenerator.bounds(collection);
 
 		const targetWidth = x1 - x0;
 		const targetHeight = y1 - y0;
@@ -408,7 +411,9 @@ export class DistrictMap {
 	private selectDistricts(districts: District[]) {
 		const svg = this.svgSelection();
 		const g = svg.select("g");
-		return g.selectAll("path").filter((datum: any) => districts.includes(datum.properties.dis_name));
+		return g
+			.selectAll<SVGPathElement, MapFeature<DistrictProperties>>("path")
+			.filter((datum) => districts.includes(datum.properties.dis_name));
 	}
 
 	/**

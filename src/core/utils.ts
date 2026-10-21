@@ -1,24 +1,5 @@
-import type { ZoomTransform } from "d3";
 import { Country } from "../types/country.js";
 import { MUNICIPALITIES, type Municipality } from "../types/municipality.js";
-
-export async function getTopology(country: Country): Promise<any> {
-	switch (country) {
-		case Country.PORTUGAL:
-			return await import("../data/portugal/municipalities.json");
-		default:
-			throw new Error(`Topology data for country ${country} is not available.`);
-	}
-}
-
-export async function getDistrictTopology(country: Country): Promise<any> {
-	switch (country) {
-		case Country.PORTUGAL:
-			return await import("../data/portugal/districts.json");
-		default:
-			throw new Error(`District topology data for country ${country} is not available.`);
-	}
-}
 
 /**
  * Picks a uniformly random municipality name for the given country. Handy for demos, "guess a
@@ -47,6 +28,6 @@ export function randomMunicipality(country: Country): Municipality {
 const DEFAULT_VIEW_TOLERANCE = 1e-6;
 
 /** Whether a zoom transform is the map's initial fitted view (no zoom, no pan), give or take float residue. */
-export function isDefaultTransform({ k, x, y }: ZoomTransform): boolean {
+export function isDefaultTransform({ k, x, y }: { k: number; x: number; y: number }): boolean {
 	return Math.abs(k - 1) < DEFAULT_VIEW_TOLERANCE && Math.abs(x) < DEFAULT_VIEW_TOLERANCE && Math.abs(y) < DEFAULT_VIEW_TOLERANCE;
 }

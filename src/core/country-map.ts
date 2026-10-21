@@ -5,6 +5,7 @@ import type { Country } from "../types/country.js";
 import type { District } from "../types/district.js";
 import type { MunicipalityInteractionEvent } from "../types/events/municipality-interaction-event.js";
 import type { ZoomChangeEvent } from "../types/events/zoom-change-event.js";
+import type { MapFeature, MapFeatureCollection, MunicipalityProperties } from "../types/map/map-feature.js";
 import type { MapRenderer } from "../types/map/map-renderer.js";
 import type { MapState } from "../types/map/map-state.js";
 import type { Municipality } from "../types/municipality.js";
@@ -13,7 +14,8 @@ import type { MapOptions } from "../types/options/map.options.js";
 import type { StyleOptions } from "../types/options/style.options.js";
 import { Status } from "../types/status.js";
 import { applyStyle } from "./apply-style.js";
-import { getTopology, isDefaultTransform } from "./utils.js";
+import { getTopology } from "./topology.js";
+import { isDefaultTransform } from "./utils.js";
 
 // How long to wait after the container stops resizing before reprojecting. A resize (e.g. a
 // sidebar collapsing) can fire many ResizeObserver callbacks in a row while it's animating —
@@ -35,7 +37,7 @@ const RESIZE_DEBOUNCE_MS = 150;
 export class CountryMap {
 	private mapOptions: MapOptions;
 	private mapState: MapState;
-	private mapRenderer: MapRenderer;
+	private mapRenderer: MapRenderer<MunicipalityProperties>;
 	private resizeDebounceHandle?: number;
 	private lastReprojectSize?: { width: number; height: number };
 	private hoverHandler?: (event: MunicipalityInteractionEvent) => void;
@@ -106,12 +108,13 @@ export class CountryMap {
 		const container = this.mapRenderer.container;
 
 		// Convert topology to a usable format and render.
-		const topology: any = await getTopology(this.mapState.country);
-		this.mapRenderer.collection = topojson.feature(topology, topology.objects.municipalities);
+		const topology = await getTopology(this.mapState.country);
+		const collection = topojson.feature(topology, topology.objects.municipalities);
+		this.mapRenderer.collection = collection;
 
 		// Render the map.
 		const { width, height } = this.mapRenderer.container.getBoundingClientRect();
-		const pathGenerator = this.reproject(width, height);
+		const pathGenerator = this.reproject(collection, width, height);
 
 		// Append data to the map
 		const svg = d3
@@ -153,9 +156,9 @@ export class CountryMap {
 		// Bind every feature (municipality) to a path element
 		const styles = this.mapOptions.style ?? {};
 		const interactive = this.mapOptions.interactive !== false;
-		const paths = g.selectAll("path");
+		const paths = g.selectAll<SVGPathElement, MapFeature<MunicipalityProperties>>("path");
 		const boundPaths = paths
-			.data(this.mapRenderer.collection.features)
+			.data(collection.features)
 			.enter()
 			.append("path")
 			.attr("d", pathGenerator)
@@ -168,13 +171,13 @@ export class CountryMap {
 		if (interactive) {
 			boundPaths
 				.style("cursor", "pointer")
-				.on("mousemove", (event: MouseEvent, datum: any) => {
+				.on("mousemove", (event: MouseEvent, datum: MapFeature<MunicipalityProperties>) => {
 					if (!this.hoverHandler) return;
 					const [x, y] = d3.pointer(event, container);
 					this.hoverHandler({ municipality: datum.properties.NAME_2, district: datum.properties.NAME_1, x, y });
 				})
 				.on("mouseleave", () => this.leaveHandler?.())
-				.on("click", (event: MouseEvent, datum: any) => {
+				.on("click", (event: MouseEvent, datum: MapFeature<MunicipalityProperties>) => {
 					if (!this.clickHandler) return;
 					const [x, y] = d3.pointer(event, container);
 					this.clickHandler({ municipality: datum.properties.NAME_2, district: datum.properties.NAME_1, x, y });
@@ -195,7 +198,7 @@ export class CountryMap {
 	 * leaving 5% padding on every side. Called once during initial render, and again on every
 	 * container resize so paths can be redrawn against the current dimensions.
 	 */
-	private reproject(width: number, height: number) {
+	private reproject(collection: MapFeatureCollection<MunicipalityProperties>, width: number, height: number) {
 		// A container that's `display:none` at the moment this runs (e.g. a consumer that mounts
 		// the map into a currently-hidden tab/panel) reports 0×0 here. `fitExtent` on a zero-area
 		// box divides by zero internally, producing a NaN projection that then poisons every path's
@@ -210,7 +213,7 @@ export class CountryMap {
 				[safeWidth * 0.05, safeHeight * 0.05],
 				[safeWidth * 0.95, safeHeight * 0.95],
 			],
-			this.mapRenderer.collection,
+			collection,
 		);
 
 		this.mapRenderer.pathGenerator = d3.geoPath().projection(this.mapRenderer.geoProjection).digits(3);
@@ -228,7 +231,7 @@ export class CountryMap {
 	 * currently has active (e.g. a consumer's own {@link CountryMap.fitToMunicipalities} view).
 	 */
 	private handleResize(entry: ResizeObserverEntry) {
-		if (!this.mapRenderer.container || !this.mapRenderer.zoomBehavior) return;
+		if (!this.mapRenderer.container || !this.mapRenderer.zoomBehavior || !this.mapRenderer.collection) return;
 
 		const { width, height } = entry.contentRect;
 		if (width === 0 || height === 0) return;
@@ -251,8 +254,8 @@ export class CountryMap {
 			zoomK = oldTransform.k;
 		}
 
-		const pathGenerator = this.reproject(width, height);
-		svg.select("g").selectAll("path").attr("d", pathGenerator);
+		const pathGenerator = this.reproject(this.mapRenderer.collection, width, height);
+		svg.select("g").selectAll<SVGPathElement, MapFeature<MunicipalityProperties>>("path").attr("d", pathGenerator);
 
 		this.mapRenderer.zoomBehavior.translateExtent([
 			[0, 0],
@@ -471,7 +474,7 @@ export class CountryMap {
 		this.fitToFeatures(this.selectDistricts(districts).data(), options);
 	}
 
-	private fitToFeatures(features: any[], options: FitOptions) {
+	private fitToFeatures(features: MapFeature<MunicipalityProperties>[], options: FitOptions) {
 		if (!this.mapRenderer.container || !this.mapRenderer.pathGenerator || !this.mapRenderer.zoomBehavior) {
 			console.warn("Fitting is not possible because the map has not finished rendering.");
 			return;
@@ -490,8 +493,8 @@ export class CountryMap {
 			return;
 		}
 
-		const collection = { type: "FeatureCollection", features };
-		const [[x0, y0], [x1, y1]] = this.mapRenderer.pathGenerator.bounds(collection as any);
+		const collection: MapFeatureCollection<MunicipalityProperties> = { type: "FeatureCollection", features };
+		const [[x0, y0], [x1, y1]] = this.mapRenderer.pathGenerator.bounds(collection);
 
 		const targetWidth = x1 - x0;
 		const targetHeight = y1 - y0;
@@ -534,7 +537,7 @@ export class CountryMap {
 	private selectMunicipalities(municipalities: Municipality[]) {
 		const svg = this.svgSelection();
 		const g = svg.select("g");
-		const target = g.selectAll("path").filter((datum: any) => {
+		const target = g.selectAll<SVGPathElement, MapFeature<MunicipalityProperties>>("path").filter((datum) => {
 			const datumMunicipality = datum.properties.NAME_2;
 			return municipalities.includes(datumMunicipality);
 		});
@@ -545,7 +548,7 @@ export class CountryMap {
 	private selectDistricts(districts: District[]) {
 		const svg = this.svgSelection();
 		const g = svg.select("g");
-		const target = g.selectAll("path").filter((datum: any) => {
+		const target = g.selectAll<SVGPathElement, MapFeature<MunicipalityProperties>>("path").filter((datum) => {
 			const datumDistrict = datum.properties.NAME_1;
 			return districts.includes(datumDistrict);
 		});

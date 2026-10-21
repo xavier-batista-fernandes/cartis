@@ -1,11 +1,12 @@
-import type { GeoPath, GeoProjection, ZoomBehavior } from "d3";
+import type { GeoPath, GeoPermissibleObjects, GeoProjection, ZoomBehavior } from "d3";
+import type { MapFeatureCollection } from "./map-feature.js";
 
-export interface MapRenderer {
+export interface MapRenderer<P> {
 	container: HTMLElement | null;
-	collection?: any;
+	collection?: MapFeatureCollection<P>;
 	geoProjection?: GeoProjection;
-	pathGenerator?: GeoPath<any, any>;
-	zoomBehavior?: ZoomBehavior<any, any>;
+	pathGenerator?: GeoPath<unknown, GeoPermissibleObjects>;
+	zoomBehavior?: ZoomBehavior<SVGSVGElement, unknown>;
 	svgElement?: SVGSVGElement;
 	resizeObserver?: ResizeObserver;
 }
