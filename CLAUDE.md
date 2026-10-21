@@ -38,3 +38,9 @@ This file provides guidance to Claude Code when working with code in this reposi
   classes. CI (`.github/workflows/ci.yml`) runs it along with Biome, the build and a pack check.
 - For most changes, the minimum meaningful verification is `npm test && npm run build`.
 - If packaging or exports change, also run `npm run publish:dryrun`.
+
+## Releases
+- Follow `RELEASING.md`. A version bump is its own PR titled `chore(release): vX.Y.Z` that changes only `package.json`
+  and `package-lock.json` (`npm version X.Y.Z --no-git-tag-version`); feature and fix PRs never touch `version`.
+- CI enforces the release PR rules, and `release.yml` refuses a tag that doesn't point at that release commit on `main`.
+- Sessions can't create tags or GitHub releases: Xavier creates the release (title = tag, empty notes while on 0.x).

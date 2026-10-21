@@ -1,3 +1,6 @@
+> General background on tags, GitHub releases and npm versions. How cartis itself is released is in
+> [RELEASING.md](../RELEASING.md).
+
 1) Git tags (the foundation)
 
 A Git tag is just a label pointing to a specific commit.

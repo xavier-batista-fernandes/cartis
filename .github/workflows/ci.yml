@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, edited] # edited: re-check a release PR after its title changes
 
 permissions:
   contents: read
@@ -42,3 +43,35 @@ jobs:
 
       - name: Check package contents
         run: npm pack --dry-run
+
+  release-pr:
+    name: Release commit rules
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # See RELEASING.md: the version only changes in a dedicated release PR, which changes nothing else.
+      - name: Check version changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          base="$(git show "$BASE_SHA:package.json" | node -p "JSON.parse(require('fs').readFileSync(0)).version")"
+          head="$(node -p "require('./package.json').version")"
+          if [ "$base" = "$head" ]; then
+            echo "Version unchanged ($head): not a release PR."
+            exit 0
+          fi
+          if [ "$PR_TITLE" != "chore(release): v$head" ]; then
+            echo "::error::This PR changes the version to $head, so its title must be \"chore(release): v$head\""
+            exit 1
+          fi
+          other="$(git diff --name-only "$BASE_SHA" HEAD | grep -vxE 'package(-lock)?\.json' || true)"
+          if [ -n "$other" ]; then
+            echo "::error::A release PR may only change package.json and package-lock.json, but it also changes:"
+            echo "$other"
+            exit 1
+          fi
