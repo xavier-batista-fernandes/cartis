@@ -12,7 +12,7 @@ import type { MapOptions } from "../types/options/map.options.js";
 import type { StyleOptions } from "../types/options/style.options.js";
 import { Status } from "../types/status.js";
 import { applyStyle } from "./apply-style.js";
-import { getDistrictTopology } from "./utils.js";
+import { getDistrictTopology, isDefaultTransform } from "./utils.js";
 
 // Same rationale as `CountryMap`'s constant of the same name — see there.
 const RESIZE_DEBOUNCE_MS = 150;
@@ -119,7 +119,7 @@ export class DistrictMap {
 			g.attr("transform", transform);
 			this.zoomChangeHandler?.({
 				scale: transform.k,
-				isDefaultView: transform.k === 1 && transform.x === 0 && transform.y === 0,
+				isDefaultView: isDefaultTransform(transform),
 			});
 		});
 
@@ -295,7 +295,7 @@ export class DistrictMap {
 
 		const svg = this.mapRenderer.svgElement;
 		const transform = svg ? d3.zoomTransform(svg) : d3.zoomIdentity;
-		handler({ scale: transform.k, isDefaultView: transform.k === 1 && transform.x === 0 && transform.y === 0 });
+		handler({ scale: transform.k, isDefaultView: isDefaultTransform(transform) });
 
 		return () => {
 			if (this.zoomChangeHandler === handler) this.zoomChangeHandler = undefined;

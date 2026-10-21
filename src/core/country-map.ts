@@ -13,7 +13,7 @@ import type { MapOptions } from "../types/options/map.options.js";
 import type { StyleOptions } from "../types/options/style.options.js";
 import { Status } from "../types/status.js";
 import { applyStyle } from "./apply-style.js";
-import { getTopology } from "./utils.js";
+import { getTopology, isDefaultTransform } from "./utils.js";
 
 // How long to wait after the container stops resizing before reprojecting. A resize (e.g. a
 // sidebar collapsing) can fire many ResizeObserver callbacks in a row while it's animating —
@@ -105,9 +105,6 @@ export class CountryMap {
 
 		const container = this.mapRenderer.container;
 
-		console.log(`Initializing map for ${this.mapState.country}...`);
-		console.log("Using options:", this.mapOptions);
-
 		// Convert topology to a usable format and render.
 		const topology: any = await getTopology(this.mapState.country);
 		this.mapRenderer.collection = topojson.feature(topology, topology.objects.municipalities);
@@ -149,7 +146,7 @@ export class CountryMap {
 			g.attr("transform", transform);
 			this.zoomChangeHandler?.({
 				scale: transform.k,
-				isDefaultView: transform.k === 1 && transform.x === 0 && transform.y === 0,
+				isDefaultView: isDefaultTransform(transform),
 			});
 		});
 
@@ -370,7 +367,7 @@ export class CountryMap {
 
 		const svg = this.mapRenderer.svgElement;
 		const transform = svg ? d3.zoomTransform(svg) : d3.zoomIdentity;
-		handler({ scale: transform.k, isDefaultView: transform.k === 1 && transform.x === 0 && transform.y === 0 });
+		handler({ scale: transform.k, isDefaultView: isDefaultTransform(transform) });
 
 		return () => {
 			if (this.zoomChangeHandler === handler) this.zoomChangeHandler = undefined;
