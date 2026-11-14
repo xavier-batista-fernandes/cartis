@@ -5,14 +5,16 @@ import type { Country } from "../types/country.js";
 import type { District } from "../types/district.js";
 import type { DistrictInteractionEvent } from "../types/events/district-interaction-event.js";
 import type { ZoomChangeEvent } from "../types/events/zoom-change-event.js";
-import type { DistrictProperties, MapFeature, MapFeatureCollection } from "../types/map/map-feature.js";
+import type { DistrictProperties, DistrictsTopology, MapFeature, MapFeatureCollection } from "../types/map/map-feature.js";
 import type { MapRenderer } from "../types/map/map-renderer.js";
 import type { MapState } from "../types/map/map-state.js";
+import type { BorderStyleOptions } from "../types/options/border.options.js";
 import type { FitOptions } from "../types/options/fit.options.js";
 import type { MapOptions } from "../types/options/map.options.js";
 import type { StyleOptions } from "../types/options/style.options.js";
 import { Status } from "../types/status.js";
 import { applyStyle } from "./apply-style.js";
+import { appendBorders, BORDERS_CLASS, buildMesh, FEATURE_CLASS, styleBordersPath } from "./borders.js";
 import { getDistrictTopology } from "./topology.js";
 import { isDefaultTransform } from "./utils.js";
 
@@ -35,6 +37,7 @@ export class DistrictMap {
 	private mapOptions: MapOptions;
 	private mapState: MapState;
 	private mapRenderer: MapRenderer<DistrictProperties>;
+	private topology?: DistrictsTopology;
 	private resizeDebounceHandle?: number;
 	private lastReprojectSize?: { width: number; height: number };
 	private hoverHandler?: (event: DistrictInteractionEvent) => void;
@@ -91,6 +94,7 @@ export class DistrictMap {
 		const container = this.mapRenderer.container;
 
 		const topology = await getDistrictTopology(this.mapState.country);
+		this.topology = topology;
 		const collection = topojson.feature(topology, topology.objects.districts);
 		this.mapRenderer.collection = collection;
 
@@ -134,10 +138,14 @@ export class DistrictMap {
 			.data(collection.features)
 			.enter()
 			.append("path")
+			.attr("class", FEATURE_CLASS)
 			.attr("d", pathGenerator)
 			.attr("fill", styles.fill ?? DEFAULT_MAP_STYLES.fill)
 			.attr("stroke", styles.strokeColor ?? DEFAULT_MAP_STYLES.strokeColor)
 			.attr("stroke-width", styles.strokeWidth ?? DEFAULT_MAP_STYLES.strokeWidth);
+
+		// Hidden until `styleBorders` gives it a stroke.
+		appendBorders(g, pathGenerator, buildMesh(topology, topology.objects.districts));
 
 		if (interactive) {
 			boundPaths
@@ -204,7 +212,8 @@ export class DistrictMap {
 		}
 
 		const pathGenerator = this.reproject(this.mapRenderer.collection, width, height);
-		svg.select("g").selectAll<SVGPathElement, MapFeature<DistrictProperties>>("path").attr("d", pathGenerator);
+		// Every path, the borders layer included: each one's datum is plain GeoJSON.
+		svg.select("g").selectAll<SVGPathElement, d3.GeoPermissibleObjects>("path").attr("d", pathGenerator);
 
 		this.mapRenderer.zoomBehavior.translateExtent([
 			[0, 0],
@@ -323,6 +332,32 @@ export class DistrictMap {
 	}
 
 	/**
+	 * Draws district borders as one shared layer over the fills, so every border is drawn exactly
+	 * once — same contract as {@link CountryMap.styleBorders}, scoped by district. Prefer it over a
+	 * per-district `strokeWidth`, which draws each border between two districts twice.
+	 *
+	 * @param options - Stroke for the borders. **Omit entirely to hide the borders again.**
+	 * @param scope - Draw only the borders of these districts (shared ones, coast and frontier).
+	 *   Omit for every border on the map.
+	 */
+	public styleBorders(options?: BorderStyleOptions, scope?: { districts?: District[] }) {
+		if (!this.isUsable("styleBorders") || !this.topology) return;
+
+		const isIncluded = scope
+			? (properties: DistrictProperties) => scope.districts?.includes(properties.dis_name) ?? false
+			: undefined;
+		const mesh = buildMesh(this.topology, this.topology.objects.districts, isIncluded);
+
+		styleBordersPath(
+			this.svgSelection().select<SVGPathElement>(`g > path.${BORDERS_CLASS}`),
+			this.mapRenderer.pathGenerator,
+			mesh,
+			this.mapOptions.style?.duration ?? 300,
+			options,
+		);
+	}
+
+	/**
 	 * Resets the zoom/pan to show the whole country, animated. Same contract as
 	 * {@link CountryMap.fitToCountry}.
 	 */
@@ -412,7 +447,7 @@ export class DistrictMap {
 		const svg = this.svgSelection();
 		const g = svg.select("g");
 		return g
-			.selectAll<SVGPathElement, MapFeature<DistrictProperties>>("path")
+			.selectAll<SVGPathElement, MapFeature<DistrictProperties>>(`path.${FEATURE_CLASS}`)
 			.filter((datum) => districts.includes(datum.properties.dis_name));
 	}
 

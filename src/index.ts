@@ -9,6 +9,7 @@ export type { MunicipalityInteractionEvent } from "./types/events/municipality-i
 export type { ZoomChangeEvent } from "./types/events/zoom-change-event.js";
 export type { Municipality } from "./types/municipality.js";
 export { getMunicipalitiesArray } from "./types/municipality.js";
+export type { BorderStyleOptions } from "./types/options/border.options.js";
 export type { FitOptions } from "./types/options/fit.options.js";
 export type { MapOptions } from "./types/options/map.options.js";
 export type { StyleOptions } from "./types/options/style.options.js";

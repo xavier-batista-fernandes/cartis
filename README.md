@@ -61,6 +61,7 @@ The core class. No public constructor — build one with `CountryMap.create()`.
 | `destroy` | `() => void` | Removes this instance's `<svg>` and releases its state. Always safe to call. |
 | `styleMunicipalities` | `(municipalities, options?) => void` | Colors the listed municipalities with one shared style. Omit `options` to reset them to the default style. |
 | `styleDistricts` | `(districts, options?) => void` | Colors every municipality belonging to the listed districts with one shared style (no separate district polygons — see caveat below). |
+| `styleBorders` | `(options?, scope?) => void` | Draws municipality borders as one layer over the fills, each border exactly once. `scope` (`{ municipalities?, districts? }`) limits it to those borders. Omit `options` to hide them. |
 | `fitToCountry` | `(options?) => void` | Zooms/pans back to the full-country view. |
 | `fitToMunicipalities` | `(municipalities, options) => void` | Zooms/pans to frame the given municipalities. Requires a non-empty list. |
 | `fitToDistricts` | `(districts, options) => void` | Zooms/pans to frame the given districts. Requires a non-empty list. |
@@ -75,6 +76,11 @@ work by matching each municipality's district property, so what renders is munic
 sharing a color — set `strokeWidth: 0` if you want same-district municipalities to visually
 merge into one shape.
 
+**Borders:** prefer `styleBorders` to a per-municipality `strokeWidth` for plain borders. A stroke
+on each municipality's own outline draws a border between two neighbours twice (once per side) and
+the coast once, so with a translucent `strokeColor` the inland borders come out darker and heavier.
+`DistrictMap` has the same `styleBorders`, scoped by `{ districts? }`.
+
 ### Types
 
 | Export | What it is |
@@ -84,6 +90,7 @@ merge into one shape.
 | `Municipality` | Literal union of all 278 Portuguese municipality names. |
 | `MapOptions` | Options for `CountryMap.create()` (initial styling; `padding`/`zoom` fields are reserved, not yet implemented). |
 | `StyleOptions` | `{ fill?, strokeColor?, strokeWidth? }` — used by `styleMunicipalities`/`styleDistricts`. |
+| `BorderStyleOptions` | `{ strokeColor?, strokeWidth? }` — used by `styleBorders`. |
 | `FitOptions` | `{ zoom?, duration? }` — used by `fitToMunicipalities`/`fitToDistricts`. |
 
 ### Utilities
