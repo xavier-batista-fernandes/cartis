@@ -5,15 +5,22 @@ import type { Country } from "../types/country.js";
 import type { District } from "../types/district.js";
 import type { MunicipalityInteractionEvent } from "../types/events/municipality-interaction-event.js";
 import type { ZoomChangeEvent } from "../types/events/zoom-change-event.js";
-import type { MapFeature, MapFeatureCollection, MunicipalityProperties } from "../types/map/map-feature.js";
+import type {
+	MapFeature,
+	MapFeatureCollection,
+	MunicipalitiesTopology,
+	MunicipalityProperties,
+} from "../types/map/map-feature.js";
 import type { MapRenderer } from "../types/map/map-renderer.js";
 import type { MapState } from "../types/map/map-state.js";
 import type { Municipality } from "../types/municipality.js";
+import type { BorderStyleOptions } from "../types/options/border.options.js";
 import type { FitOptions } from "../types/options/fit.options.js";
 import type { MapOptions } from "../types/options/map.options.js";
 import type { StyleOptions } from "../types/options/style.options.js";
 import { Status } from "../types/status.js";
 import { applyStyle } from "./apply-style.js";
+import { appendBorders, BORDERS_CLASS, buildMesh, FEATURE_CLASS, styleBordersPath } from "./borders.js";
 import { getTopology } from "./topology.js";
 import { isDefaultTransform } from "./utils.js";
 
@@ -38,6 +45,7 @@ export class CountryMap {
 	private mapOptions: MapOptions;
 	private mapState: MapState;
 	private mapRenderer: MapRenderer<MunicipalityProperties>;
+	private topology?: MunicipalitiesTopology;
 	private resizeDebounceHandle?: number;
 	private lastReprojectSize?: { width: number; height: number };
 	private hoverHandler?: (event: MunicipalityInteractionEvent) => void;
@@ -109,6 +117,7 @@ export class CountryMap {
 
 		// Convert topology to a usable format and render.
 		const topology = await getTopology(this.mapState.country);
+		this.topology = topology;
 		const collection = topojson.feature(topology, topology.objects.municipalities);
 		this.mapRenderer.collection = collection;
 
@@ -161,10 +170,14 @@ export class CountryMap {
 			.data(collection.features)
 			.enter()
 			.append("path")
+			.attr("class", FEATURE_CLASS)
 			.attr("d", pathGenerator)
 			.attr("fill", styles.fill ?? DEFAULT_MAP_STYLES.fill)
 			.attr("stroke", styles.strokeColor ?? DEFAULT_MAP_STYLES.strokeColor)
 			.attr("stroke-width", styles.strokeWidth ?? DEFAULT_MAP_STYLES.strokeWidth);
+
+		// Hidden until `styleBorders` gives it a stroke.
+		appendBorders(g, pathGenerator, buildMesh(topology, topology.objects.municipalities));
 
 		// A read-only map (no handlers ever registered) skips both the cursor and the listeners —
 		// a pointer cursor with nothing behind it just implies clickability that isn't there.
@@ -255,7 +268,8 @@ export class CountryMap {
 		}
 
 		const pathGenerator = this.reproject(this.mapRenderer.collection, width, height);
-		svg.select("g").selectAll<SVGPathElement, MapFeature<MunicipalityProperties>>("path").attr("d", pathGenerator);
+		// Every path, the borders layer included: each one's datum is plain GeoJSON.
+		svg.select("g").selectAll<SVGPathElement, d3.GeoPermissibleObjects>("path").attr("d", pathGenerator);
 
 		this.mapRenderer.zoomBehavior.translateExtent([
 			[0, 0],
@@ -411,6 +425,47 @@ export class CountryMap {
 	}
 
 	/**
+	 * Draws municipality borders as one shared layer over the fills, so every border is drawn
+	 * exactly once. A stroke set through {@link CountryMap.styleMunicipalities} sits on each
+	 * municipality's own outline instead, which draws a border between two neighbours twice: with a
+	 * translucent `strokeColor`, those shared borders come out darker and heavier than the coast.
+	 * Prefer this for plain borders, and keep the per-municipality stroke at `0` (the default).
+	 *
+	 * Borders are hidden until this is called. Calling it again replaces both the style and the
+	 * scope.
+	 *
+	 * @param options - Stroke for the borders, animated like the other `style*` calls. **Omit
+	 *   entirely to hide the borders again.**
+	 * @param scope - Draw only the borders of these municipalities, and of every municipality in
+	 *   these districts: the ones they share with any neighbour, plus their coast and frontier.
+	 *   Omit for every border on the map.
+	 *
+	 * @example
+	 * ```ts
+	 * map.styleBorders({ strokeColor: "rgba(15, 23, 42, 0.35)", strokeWidth: 0.25 });
+	 * map.styleBorders({ strokeColor: "#333", strokeWidth: 0.5 }, { districts: ["Lisboa"] });
+	 * map.styleBorders(); // hide them
+	 * ```
+	 */
+	public styleBorders(options?: BorderStyleOptions, scope?: { municipalities?: Municipality[]; districts?: District[] }) {
+		if (!this.isUsable("styleBorders") || !this.topology) return;
+
+		const isIncluded = scope
+			? (properties: MunicipalityProperties) =>
+					(scope.municipalities?.includes(properties.NAME_2) ?? false) || (scope.districts?.includes(properties.NAME_1) ?? false)
+			: undefined;
+		const mesh = buildMesh(this.topology, this.topology.objects.municipalities, isIncluded);
+
+		styleBordersPath(
+			this.svgSelection().select<SVGPathElement>(`g > path.${BORDERS_CLASS}`),
+			this.mapRenderer.pathGenerator,
+			mesh,
+			this.mapOptions.style?.duration ?? 300,
+			options,
+		);
+	}
+
+	/**
 	 * Resets the zoom/pan to show the whole country, animated. The only way to get back to the
 	 * initial full-country view — {@link CountryMap.fitToMunicipalities} and
 	 * {@link CountryMap.fitToDistricts} require at least one match and won't do this for you.
@@ -537,7 +592,7 @@ export class CountryMap {
 	private selectMunicipalities(municipalities: Municipality[]) {
 		const svg = this.svgSelection();
 		const g = svg.select("g");
-		const target = g.selectAll<SVGPathElement, MapFeature<MunicipalityProperties>>("path").filter((datum) => {
+		const target = g.selectAll<SVGPathElement, MapFeature<MunicipalityProperties>>(`path.${FEATURE_CLASS}`).filter((datum) => {
 			const datumMunicipality = datum.properties.NAME_2;
 			return municipalities.includes(datumMunicipality);
 		});
@@ -548,7 +603,7 @@ export class CountryMap {
 	private selectDistricts(districts: District[]) {
 		const svg = this.svgSelection();
 		const g = svg.select("g");
-		const target = g.selectAll<SVGPathElement, MapFeature<MunicipalityProperties>>("path").filter((datum) => {
+		const target = g.selectAll<SVGPathElement, MapFeature<MunicipalityProperties>>(`path.${FEATURE_CLASS}`).filter((datum) => {
 			const datumDistrict = datum.properties.NAME_1;
 			return districts.includes(datumDistrict);
 		});

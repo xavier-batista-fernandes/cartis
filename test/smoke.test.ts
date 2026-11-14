@@ -76,6 +76,43 @@ describe("CountryMap", () => {
 		expect(container.isConnected).toBe(true);
 	});
 
+	it("draws every border once, in its own layer", async () => {
+		const container = makeContainer();
+		const map = await CountryMap.create(Country.PORTUGAL, container, { style: { duration: 0 } });
+
+		const borders = container.querySelectorAll("svg path.cartis-borders");
+		expect(borders).toHaveLength(1);
+		const border = borders[0];
+		expect(border.getAttribute("stroke-width")).toBe("0");
+		const fullLength = border.getAttribute("d")?.length ?? 0;
+		expect(fullLength).toBeGreaterThan(0);
+
+		// Styling every municipality must leave the borders layer alone.
+		map.styleMunicipalities(["Lisboa"], { fill: "#ff0000", strokeWidth: 1 });
+		await wait(50);
+		expect(border.getAttribute("fill")).toBe("none");
+		expect(border.getAttribute("stroke-width")).toBe("0");
+
+		map.styleBorders({ strokeColor: "#000000", strokeWidth: 0.25 });
+		await wait(50);
+		expect(border.getAttribute("stroke-width")).toBe("0.25");
+		expect(border.getAttribute("stroke")).toBe("rgb(0, 0, 0)");
+
+		map.styleBorders({ strokeColor: "#000000", strokeWidth: 0.25 }, { districts: ["Lisboa"] });
+		await wait(50);
+		const scopedLength = border.getAttribute("d")?.length ?? 0;
+		expect(scopedLength).toBeGreaterThan(0);
+		expect(scopedLength).toBeLessThan(fullLength);
+
+		map.styleBorders(undefined, { municipalities: [] });
+		await wait(50);
+		expect(border.getAttribute("stroke-width")).toBe("0");
+
+		map.destroy();
+		map.styleBorders({ strokeWidth: 1 });
+		expect(container.querySelector("svg")).toBeNull();
+	});
+
 	it("still reports the default view after a resize", async () => {
 		const container = makeContainer();
 		const map = await CountryMap.create(Country.PORTUGAL, container);
@@ -109,6 +146,12 @@ describe("DistrictMap", () => {
 
 		map.fitToDistricts(["Lisboa"], { duration: 0 });
 		map.fitToCountry({ duration: 0 });
+
+		map.styleBorders({ strokeColor: "#000000", strokeWidth: 0.5 }, { districts: ["Lisboa", "Setúbal"] });
+		await wait(50);
+		const border = container.querySelector("svg path.cartis-borders");
+		expect(border?.getAttribute("stroke-width")).toBe("0.5");
+		expect(border?.getAttribute("d")?.length).toBeGreaterThan(0);
 
 		map.destroy();
 		expect(container.querySelector("svg")).toBeNull();
